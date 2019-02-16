@@ -7,30 +7,33 @@
 
 package frc.robot;
 
-import edu.wpi.first.networktables.NetworkTableInstance;
+import edu.wpi.first.cameraserver.CameraServer;
+import edu.wpi.first.networktables.NetworkTableEntry;
 import edu.wpi.first.wpilibj.Compressor;
 import edu.wpi.first.wpilibj.DoubleSolenoid;
 import edu.wpi.first.wpilibj.Joystick;
-import edu.wpi.first.wpilibj.RobotController;
 import edu.wpi.first.wpilibj.Solenoid;
 import edu.wpi.first.wpilibj.Spark;
 import edu.wpi.first.wpilibj.TimedRobot;
+import edu.wpi.first.wpilibj.VictorSP;
 import edu.wpi.first.wpilibj.XboxController;
+import edu.wpi.first.wpilibj.DoubleSolenoid.Value;
 import edu.wpi.first.wpilibj.command.Command;
-import edu.wpi.first.wpilibj.command.Scheduler;
 import edu.wpi.first.wpilibj.drive.DifferentialDrive;
-import edu.wpi.first.wpilibj.networktables.NetworkTable;
+import edu.wpi.first.wpilibj.shuffleboard.BuiltInWidgets;
+import edu.wpi.first.wpilibj.shuffleboard.Shuffleboard;
 import edu.wpi.first.wpilibj.smartdashboard.SendableChooser;
 import edu.wpi.first.wpilibj.smartdashboard.SmartDashboard;
 import frc.robot.commands.ExampleCommand;
 import frc.robot.subsystems.ExampleSubsystem;
 
+import java.util.Map;
+
 import com.ctre.phoenix.motorcontrol.ControlMode;
+import com.ctre.phoenix.motorcontrol.NeutralMode;
 import com.ctre.phoenix.motorcontrol.can.TalonSRX;
-import com.ctre.phoenix.motorcontrol.can.TalonSRXConfiguration;
-import com.revrobotics.CANDigitalInput;
 import com.revrobotics.CANSparkMax;
-import com.revrobotics.CANDigitalInput.LimitSwitchPolarity;
+import com.revrobotics.CANSparkMax.IdleMode;
 import com.revrobotics.CANSparkMaxLowLevel.MotorType;
 
 /**
@@ -44,13 +47,14 @@ public class Robot extends TimedRobot {
   public static ExampleSubsystem m_subsystem = new ExampleSubsystem();
   public static OI m_oi;
 
-  private DiagnosticsLogger Diagnostics;
+  //private DiagnosticsLogger Diagnostics;
 
   private XboxController xbox;
   private Joystick joystick;
 
   private DoubleSolenoid ClimbFront;
   private DoubleSolenoid ClimbBack;
+  private VictorSP BackFootMover;
   
   private CANSparkMax MainLeft;
   private CANSparkMax AltLeft;
@@ -60,6 +64,7 @@ public class Robot extends TimedRobot {
   private DifferentialDrive Drive;
   
   private TalonSRX Lifter;
+  private TalonSRX LiftFollower;
 
   private int LiftSetpoint;
   
@@ -68,18 +73,22 @@ public class Robot extends TimedRobot {
   private Solenoid ArmOpener;
   private Solenoid ArmExtender;
   private Spark ArmGrippers;
+  private boolean ArmsExtended = false;
+  private boolean ArmsClosed = false;
 
   public static final int PCM_COMP_24V = 1;
   public static final int PCM_12V = 2;
 
-  public static final int HATCH_BOTTOM = 0;
-  public static final int HATCH_MIDDLE = 0;
-  public static final int HATCH_TOP = 0;
+  public static final int HATCH_BOTTOM = -3602;
+  public static final int HATCH_MIDDLE = -13490;
+  public static final int HATCH_TOP = -22085;
   public static final int CARGO_PICKUP = 0;
-  public static final int CARGO_BOTTOM = 0;
-  public static final int CARGO_MIDDLE = 0;
-  public static final int CARGO_TOP = 0;
-  //public static final int LIMIT_UP = -27000;
+  public static final int CARGO_BOTTOM = -7610;
+  public static final int CARGO_MIDDLE = -17686;
+  public static final int CARGO_TOP = -26681;//-24834;
+  public static final int CARGO_FLOOR = 0;
+  // We actually program this into the motor controller
+  public static final int LIMIT_UP = -27500;
 
   Command m_autonomousCommand;
   SendableChooser<Command> m_chooser = new SendableChooser<>();
@@ -95,36 +104,60 @@ public class Robot extends TimedRobot {
     // chooser.addOption("My Auto", new MyAutoCommand());
     SmartDashboard.putData("Auto mode", m_chooser);
 
-    //ClimbFront = new DoubleSolenoid(PCM_COMP_24V, 0, 1);
-    //ClimbBack = new DoubleSolenoid(PCM_COMP_24V, 2, 3);
     Comp = new Compressor(PCM_COMP_24V);
+
+    ClimbBack = new DoubleSolenoid(PCM_COMP_24V, 0, 1);
+    ClimbFront = new DoubleSolenoid(PCM_COMP_24V, 2, 3);
+
+    BackFootMover = new VictorSP(1);
 
     MainRight = new CANSparkMax(9, MotorType.kBrushless);
     AltRight = new CANSparkMax(10, MotorType.kBrushless);
     MainLeft = new CANSparkMax(11, MotorType.kBrushless);
     AltLeft = new CANSparkMax(12, MotorType.kBrushless);
 
+    MainRight.setIdleMode(IdleMode.kCoast);
+    AltRight.setIdleMode(IdleMode.kCoast);
+    MainLeft.setIdleMode(IdleMode.kCoast);
+    AltLeft.setIdleMode(IdleMode.kCoast);
+
     AltLeft.follow(MainLeft);
     AltRight.follow(MainRight);
 
     Drive = new DifferentialDrive(MainLeft, MainRight);
 
-    Lifter = new TalonSRX(60);
-    
-    //Lifter.selectProfileSlot(0, 0);
+    Lifter = new TalonSRX(6);
+    Lifter.setNeutralMode(NeutralMode.Brake);
+    Lifter.enableCurrentLimit(false);
+    /*Lifter.configContinuousCurrentLimit(40);
+    Lifter.configPeakCurrentLimit(50);
+    Lifter.configPeakCurrentDuration(1500);*/
+    //Lifter.configReverseSoftLimitEnable(true);
+    //Lifter.configReverseSoftLimitThreshold(-27000);
+    //Lifter.configForwardLimitSwitchSource(LimitSwitchSource.FeedbackConnector, LimitSwitchNormal.NormallyOpen);
+    //Lifter.configClearPositionOnLimitF(true, 0);
+    Lifter.selectProfileSlot(0, 0);
     LiftSetpoint = 0;
+
+    LiftFollower = new TalonSRX(5);
+    LiftFollower.follow(Lifter);
+    LiftFollower.setNeutralMode(NeutralMode.Brake);
 
     ArmExtender = new Solenoid(PCM_12V, 0);
     ArmOpener = new Solenoid(PCM_12V, 1);
     ArmGrippers = new Spark(0);
 
-    Diagnostics = new DiagnosticsLogger();
+    //Diagnostics = new DiagnosticsLogger();
     // Uncomment this line to enable diagnostics. Warning: this may
     // cause the robot to be slower than it is supposed to be because of lag.
     //Diagnostics.start();
 
     xbox = new XboxController(0);
     joystick = new Joystick(1);
+    
+    liftRamp = new Ramp();
+
+    CameraServer.getInstance().startAutomaticCapture(0);
   }
 
   /**
@@ -139,21 +172,25 @@ public class Robot extends TimedRobot {
   @Override
   public void robotPeriodic() {
     //SmartDashboard.putNumber("DaTa", NetworkTableInstance.getDefault().getTable("VisionTable").getEntry("THIS IS A RANDOM NUMBER").getNumber(-1).doubleValue());
-    SmartDashboard.putNumber("LiftSetpoint", LiftSetpoint);
-    SmartDashboard.putNumber("LiftEncoderPos", Lifter.getSelectedSensorPosition());
-    SmartDashboard.putNumber("LiftVoltageOut", Lifter.getMotorOutputVoltage());
-    SmartDashboard.putNumber("LiftCurrentOut", Lifter.getOutputCurrent());
-    SmartDashboard.putString("ControlMode", Lifter.getControlMode().toString());
-    SmartDashboard.putNumber("ClosedLoopError", Lifter.getClosedLoopError());
+    //SmartDashboard.putNumber("LiftSetpoint", LiftSetpoint);
+    //SmartDashboard.putNumber("LiftEncoderPos", Lifter.getSelectedSensorPosition());
+    //SmartDashboard.putNumber("LiftVoltageOut", Lifter.getMotorOutputVoltage());
+    //SmartDashboard.putNumber("LiftCurrentOut", Lifter.getOutputCurrent());
+    //SmartDashboard.putString("ControlMode", Lifter.getControlMode().toString());
+    //SmartDashboard.putNumber("ClosedLoopError", Lifter.getClosedLoopError());
+    //SmartDashboard.putNumber("LiftRampOutput", liftRamp.getOutput());
 
-    Diagnostics.writeDouble("DrivePosLeft", MainLeft.getEncoder().getPosition());
+    /*Diagnostics.writeDouble("DrivePosLeft", MainLeft.getEncoder().getPosition());
     Diagnostics.writeDouble("DrivePosRight", MainRight.getEncoder().getPosition());
     Diagnostics.writeDouble("DrivePosLeftAlt", AltLeft.getEncoder().getPosition());
     Diagnostics.writeDouble("DrivePosRightAlt", AltRight.getEncoder().getPosition());
+    Diagnostics.writeDouble("LiftVoltageOut", Lifter.getMotorOutputVoltage());
+    Diagnostics.writeDouble("LiftCurrentOut", Lifter.getOutputCurrent());
     Diagnostics.writeInteger("LiftEncoderPos", Lifter.getSelectedSensorPosition());
     Diagnostics.writeInteger("LiftSetpoint", LiftSetpoint);
+    Diagnostics.writeInteger("LiftRampOutput", liftRamp.getOutput());
     
-    Diagnostics.timestamp();
+    Diagnostics.timestamp();*/
   }
 
   /**
@@ -163,12 +200,12 @@ public class Robot extends TimedRobot {
    */
   @Override
   public void disabledInit() {
-    Diagnostics.writeString("State", "DISABLED");
+    //Diagnostics.writeString("State", "DISABLED");
   }
 
   @Override
   public void disabledPeriodic() {
-    Scheduler.getInstance().run();
+    //Scheduler.getInstance().run();
   }
 
   /**
@@ -185,7 +222,7 @@ public class Robot extends TimedRobot {
    */
   @Override
   public void autonomousInit() {
-    Diagnostics.writeString("State", "AUTO");
+    //Diagnostics.writeString("State", "AUTO");
     m_autonomousCommand = m_chooser.getSelected();
 
     /*
@@ -210,9 +247,11 @@ public class Robot extends TimedRobot {
     //Scheduler.getInstance().run();
   }
 
+  private Ramp liftRamp;
+
   @Override
   public void teleopInit() {
-    Diagnostics.writeString("State", "TELEOP");
+    //Diagnostics.writeString("State", "TELEOP");
 
     // This makes sure that the autonomous stops running when
     // teleop starts running. If you want the autonomous to
@@ -222,73 +261,103 @@ public class Robot extends TimedRobot {
       m_autonomousCommand.cancel();
     }
 
+    ArmsExtended = ArmsClosed = false;
+    ClimbFront.set(Value.kReverse);
+    ClimbBack.set(Value.kReverse);
+
+    LiftSetpoint = 0;
+    liftRamp = new Ramp();
+
     Comp.start();
   }
 
-  boolean wasPressed = false;
+  boolean wasClimbPressedLast = false;
   int climbState = 0;
+
   /**
    * This function is called periodically during operator control.
    */
   @Override
   public void teleopPeriodic() {
-    Scheduler.getInstance().run();
+    //Scheduler.getInstance().run();
+    // Cargo ship is -13120
 
-    double y = -xbox.getRawAxis(0);
+    double y = -xbox.getRawAxis(0) * 0.7D;
     double x = (xbox.getRawAxis(2) - xbox.getRawAxis(3)) * 0.8D;
 
     Drive.arcadeDrive(x, y);
 
-    if (joystick.getRawButton(11)) {
+    if (joystick.getRawButtonPressed(11)) {
       LiftSetpoint = HATCH_BOTTOM;
-    } else if (joystick.getRawButton(9)) {
+    } else if (joystick.getRawButtonPressed(9)) {
       LiftSetpoint = HATCH_MIDDLE;
-    } else if (joystick.getRawButton(7)) {
+    } else if (joystick.getRawButtonPressed(7)) {
       LiftSetpoint = HATCH_TOP;
-    } else if (joystick.getRawButton(10)) {
+    } else if (joystick.getRawButtonPressed(12)) {
       LiftSetpoint = CARGO_BOTTOM;
-    } else if (joystick.getRawButton(8)) {
+    } else if (joystick.getRawButtonPressed(10)) {
       LiftSetpoint = CARGO_MIDDLE;
-    } else if (joystick.getRawButton(6)) {
+    } else if (joystick.getRawButtonPressed(8)) {
       LiftSetpoint = CARGO_TOP;
+    } else if (joystick.getRawButtonPressed(1)) {
+      LiftSetpoint = CARGO_FLOOR;
+    }
+
+    double liftY = -joystick.getRawAxis(1);
+    final double deadband = 0.15;
+    if (Math.abs(liftY) > deadband)
+      LiftSetpoint += (liftY < 0 ? liftY + 0.15 : liftY - 0.15) * 400;//(int)liftEntry.getDouble(0);//
+    
+    if (LiftSetpoint < LIMIT_UP) {
+      LiftSetpoint = LIMIT_UP;
     }
     
-    LiftSetpoint += Math.round(controller.getRawAxis(4) * 20) * 20;
+    liftRamp.applySetpoint(LiftSetpoint);
+    liftRamp.update();
     //Lifter.overrideLimitSwitchesEnable
     // TODO add software upper limit for lift
 
-    //Lifter.set(ControlMode.Position, LiftSetpoint);
-    Lifter.set(ControlMode.PercentOutput, xbox.getRawAxis(4));
+    Lifter.set(ControlMode.Position, liftRamp.getOutput());
+    //Lifter.set(ControlMode.PercentOutput, -joystick.getRawAxis(1));
 
-    ArmExtender.set(xbox.getAButton());
-    ArmOpener.set(xbox.getBButton());
+    if (joystick.getRawButtonPressed(4) || xbox.getBButtonPressed())
+      ArmsClosed = !ArmsClosed;
+    if (joystick.getRawButtonPressed(3) || xbox.getAButtonPressed())
+      ArmsExtended = !ArmsExtended;
 
-    Diagnostics.writeDouble("DriveX", x);
-    Diagnostics.writeDouble("DriveY", x);
+    ArmExtender.set(ArmsExtended);
+    ArmOpener.set(ArmsClosed);
 
-    ArmGrippers.set(xbox.getYButton() ? -1D : xbox.getXButton() ? 1D : 0);
+    //Diagnostics.writeDouble("DriveX", x);
+    //Diagnostics.writeDouble("DriveY", y);
+
+    // X = out, Y = in
+    ArmGrippers.set(xbox.getXButton() || joystick.getRawButton(6) ? -1D : xbox.getYButton() || joystick.getRawButton(5) ? 1D : 0);
     
-    if (RobotController.getUserButton()) {
-      if (!wasPressed) {
-        wasPressed = true;
+    boolean climbPressed = xbox.getStartButton() && joystick.getRawButton(2);
+
+    if (climbPressed) {
+      if (!wasClimbPressedLast) {
+        wasClimbPressedLast = true;
         climbState++;
         climbState %= 3;
       }
     } else {
-      wasPressed = false;
+      wasClimbPressedLast = false;
     }
-
-    if (1 > 0) return;
 
     if (climbState == 0) {
       ClimbFront.set(DoubleSolenoid.Value.kReverse);
       ClimbBack.set(DoubleSolenoid.Value.kReverse);
+      BackFootMover.set(0);
     } else if (climbState == 1) {
       ClimbFront.set(DoubleSolenoid.Value.kForward);
       ClimbBack.set(DoubleSolenoid.Value.kForward);
+      BackFootMover.set(Math.min(5 * x, 1.0));
     } else {
       ClimbFront.set(DoubleSolenoid.Value.kReverse);
       ClimbBack.set(DoubleSolenoid.Value.kForward);
+      BackFootMover.set(Math.min(5 * x, 1.0));
     }
 
   }
@@ -298,6 +367,6 @@ public class Robot extends TimedRobot {
    */
   @Override
   public void testPeriodic() {
-    Diagnostics.writeString("State", "TEST");
+    //Diagnostics.writeString("State", "TEST");
   }
 }

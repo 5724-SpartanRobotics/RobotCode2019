@@ -14,8 +14,6 @@ import java.net.Socket;
 import java.util.HashMap;
 import java.util.Map;
 
-import javax.net.ServerSocketFactory;
-
 /**
  * This class listens on a port and then sends diagnostics data to clients.
  */
@@ -95,6 +93,7 @@ public class DiagnosticsLogger {
 
     public void sendString(String name, String value) {
             String msg = name + ":" + value + "\n";
+            //System.out.println(msg);
 
             try {
                 if (clientStream != null && client.isConnected()) {
