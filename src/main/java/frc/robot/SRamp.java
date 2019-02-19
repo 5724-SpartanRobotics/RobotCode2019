@@ -1,35 +1,127 @@
 package frc.robot;
+ 
+/// <summary>
+/// S-Curve
+/// ramping rate is changed linearly based on current error, (e.g. Setpoint - Output)
+/// </summary>
+public class SRamp
+{
+	public double Setpoint;
+    private double _Output;
 
-public class SRamp {
-    private float setpoint = 0;
-    private float output = 0;
-    private float currentVel = 0;
-
-    private static final float MAX_VEL = 100;
-    private static final float MAX_ACCEL = 1;
+	/// <summary>
+	/// Gets or sets the rate.
+	/// The rate is in units added or subtracted with each call to update. This is the max rate. The actual
+	/// rate is rampped based upon the error.
+	/// </summary>
+	/// <value>
+	/// The rate.
+	/// </value>
+	public double Rate;
     
-    public void applySetpoint(float value) {
-        setpoint = value;
+    private Ramp _VelRamp;
+    
+    /// <summary>
+	/// Gets the current rate.
+	/// This is the calculated rate based upon the current error
+	/// </summary>
+	/// <value>
+	/// The current rate.
+	/// </value>
+	public double getCurrentRate()
+	{
+		return _VelRamp.getOutput();
+    }
+    
+    public double getOutput() {
+        return _Output;
+    }
+    
+	/// <summary>
+	/// Gets or sets the maximum acceleration rate.
+	/// This is the ammount the acceleration can increase or decrease by with each update.
+	/// Defaults to 2.
+	/// </summary>
+	/// <value>
+	/// The maximum access rate.
+	/// </value>
+	public double getMaxAccelRate()
+	{
+		return _VelRamp.Rate;
+    }
+    
+	public void setMaxAccelRate(double value)
+	{
+        _VelRamp.Rate = value;
     }
 
-    public void update() {
-        float error = setpoint - output;    
-        float diff = currentVel / MAX_ACCEL;
+	public SRamp()
+	{
+		_VelRamp = new Ramp();
+		_VelRamp.Rate = 5;
+	}
 
-        if (Math.abs(error) <= diff) {
-            if (error > 0) {
-                currentVel -= diff;
-            } else {
-                currentVel += diff;
-            }
-        } else if (currentVel < MAX_VEL) {
-            currentVel += MAX_ACCEL;
-        }
+	public void update()
+	{
+		double accelSetpoint = calculateVelRampSetpoint();
+		//set the new rate setpoint
+		_VelRamp.Setpoint = accelSetpoint;
+		_VelRamp.Update();
 
-        output += currentVel;
-    }
+		if (Setpoint != _Output)
+		{
+			_Output += getCurrentRate();
+		}
+		else
+		{
+			_Output = Setpoint;
+		}
+	}
 
-    public float getOutput() {
-        return output;
-    }
+	// Sets the output (and setpoint) to the desired value immediately (needed when transitioning from auto to teleop through disabled)
+	public void setOutput(double value)
+	{
+		Setpoint = value;
+		_Output = value;
+	}
+
+	private double calculateVelRampSetpoint()
+	{
+		//based upon the difference between our current output and our desired setpoint
+		// determine if our Accel ramp should be increasing toward our Rate, decreasing
+		// toward the negative of our Rate, or moving toward 0.
+		double error = Setpoint - _Output;
+		//at the current s-curve rate, how many updates would it take to get to a rate of zero
+		// (note the current rate could be negative, positive or 0)
+		double numToGetToZeroVel = Math.abs(getCurrentRate() / getMaxAccelRate());
+		//total output change if we were to go to a zero accel rate now
+		double totalChangeIfAtSetpoint = getCurrentRate() * numToGetToZeroVel / 2;
+		if (error > 0)
+		{
+			if (error > (totalChangeIfAtSetpoint + getMaxAccelRate()))
+			{
+				return Rate;
+			}
+			else
+			{
+				return 0;
+			}
+		}
+		else if (error < 0)
+		{
+			if (error < (totalChangeIfAtSetpoint - getMaxAccelRate()))
+			{
+				return Rate * -1;
+			}
+			else
+			{
+				return 0;
+			}
+		}
+		else
+		{
+			return 0;
+		}
+	}
+
 }

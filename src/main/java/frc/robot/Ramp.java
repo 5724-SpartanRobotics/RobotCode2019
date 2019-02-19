@@ -1,26 +1,34 @@
 package frc.robot;
 
-public class Ramp {
-    private int setpoint = 0;
-    private int output = 0;
+public class Ramp
+{
+    public double Setpoint;
+    private double _Output;
+
+    public double Rate;
+
+	public Ramp()
+	{
+		Rate = 50;
+	}
+
+	public double getOutput() {
+        return _Output;
+    }
     
-    public void applySetpoint(int setpoint) {
-        this.setpoint = setpoint;
-    }
-
-    private static final int INCREMENT = 100;
-
-    public void update() {
-        if (output - setpoint < -INCREMENT) {
-            output += INCREMENT;
-        } else if (output - setpoint > INCREMENT) {
-            output -= INCREMENT;
-        } else {
-            output = setpoint;
-        }
-    }
-
-    public int getOutput() {
-        return output;
-    }
+	public void Update()
+	{
+		if (_Output < (Setpoint - Rate))
+		{
+			_Output += Rate;
+		}
+		else if (_Output > (Setpoint + Rate))
+		{
+			_Output -= Rate;
+		}
+		else
+		{
+			_Output = Setpoint;
+		}
+	}
 }

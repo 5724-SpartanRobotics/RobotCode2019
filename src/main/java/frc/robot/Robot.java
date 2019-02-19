@@ -9,6 +9,7 @@ package frc.robot;
 
 import edu.wpi.first.cameraserver.CameraServer;
 import edu.wpi.first.networktables.NetworkTableEntry;
+import edu.wpi.first.networktables.NetworkTableInstance;
 import edu.wpi.first.wpilibj.Compressor;
 import edu.wpi.first.wpilibj.DoubleSolenoid;
 import edu.wpi.first.wpilibj.Joystick;
@@ -20,6 +21,7 @@ import edu.wpi.first.wpilibj.XboxController;
 import edu.wpi.first.wpilibj.DoubleSolenoid.Value;
 import edu.wpi.first.wpilibj.command.Command;
 import edu.wpi.first.wpilibj.drive.DifferentialDrive;
+import edu.wpi.first.networktables.NetworkTable;
 import edu.wpi.first.wpilibj.shuffleboard.BuiltInWidgets;
 import edu.wpi.first.wpilibj.shuffleboard.Shuffleboard;
 import edu.wpi.first.wpilibj.smartdashboard.SendableChooser;
@@ -60,6 +62,7 @@ public class Robot extends TimedRobot {
   private CANSparkMax AltLeft;
   private CANSparkMax MainRight;
   private CANSparkMax AltRight;
+  private SRamp SpeedRamp;
 
   private DifferentialDrive Drive;
   
@@ -79,16 +82,28 @@ public class Robot extends TimedRobot {
   public static final int PCM_COMP_24V = 1;
   public static final int PCM_12V = 2;
 
-  public static final int HATCH_BOTTOM = -3602;
-  public static final int HATCH_MIDDLE = -13490;
-  public static final int HATCH_TOP = -22085;
+  // Hook #2 Values
+  //public static final int HATCH_BOTTOM = -3602;
+  //public static final int HATCH_MIDDLE = -13490;
+  //public static final int HATCH_TOP = -22085;
+  // Hook #1 Values
+  public static final int HATCH_BOTTOM = -4016;//-4805;
+  public static final int HATCH_MIDDLE = -13120;
+  public static final int HATCH_TOP = -21214;//-23320;
   public static final int CARGO_PICKUP = 0;
   public static final int CARGO_BOTTOM = -7610;
-  public static final int CARGO_MIDDLE = -17686;
-  public static final int CARGO_TOP = -26681;//-24834;
+  public static final int CARGO_MIDDLE = -16026;//-17686;
+  public static final int CARGO_TOP = -24458;//-24834;
   public static final int CARGO_FLOOR = 0;
   // We actually program this into the motor controller
-  public static final int LIMIT_UP = -27500;
+  public static final int LIMIT_UP = -26000;//-27500;
+
+  private SRamp LiftRamp;
+  
+  public NetworkTable VisionTable;
+  public NetworkTableEntry TapeDetectedEntry;
+  public NetworkTableEntry TapePitchEntry;
+  public NetworkTableEntry TapeYawEntry;
 
   Command m_autonomousCommand;
   SendableChooser<Command> m_chooser = new SendableChooser<>();
@@ -155,7 +170,13 @@ public class Robot extends TimedRobot {
     xbox = new XboxController(0);
     joystick = new Joystick(1);
     
-    liftRamp = new Ramp();
+    LiftRamp = new SRamp();
+    SpeedRamp = new SRamp();
+
+    VisionTable = NetworkTableInstance.getDefault().getTable("ChickenVision");
+    TapeDetectedEntry = VisionTable.getEntry("tapeDetected");
+    TapePitchEntry = VisionTable.getEntry("tapePitch");
+    TapeYawEntry = VisionTable.getEntry("tapeYaw");
 
     CameraServer.getInstance().startAutomaticCapture(0);
   }
@@ -223,7 +244,7 @@ public class Robot extends TimedRobot {
   @Override
   public void autonomousInit() {
     //Diagnostics.writeString("State", "AUTO");
-    m_autonomousCommand = m_chooser.getSelected();
+    //m_autonomousCommand = m_chooser.getSelected();
 
     /*
      * String autoSelected = SmartDashboard.getString("Auto Selector", "Default");
@@ -233,9 +254,11 @@ public class Robot extends TimedRobot {
      */
 
     // schedule the autonomous command (example)
-    if (m_autonomousCommand != null) {
+    /*if (m_autonomousCommand != null) {
       m_autonomousCommand.start();
-    }
+    }*/
+
+    teleopInit();
   }
 
   /**
@@ -246,8 +269,6 @@ public class Robot extends TimedRobot {
     teleopPeriodic();
     //Scheduler.getInstance().run();
   }
-
-  private Ramp liftRamp;
 
   @Override
   public void teleopInit() {
@@ -265,13 +286,23 @@ public class Robot extends TimedRobot {
     ClimbFront.set(Value.kReverse);
     ClimbBack.set(Value.kReverse);
 
-    LiftSetpoint = 0;
-    liftRamp = new Ramp();
+    LiftSetpoint = Lifter.getSelectedSensorPosition();
+    LiftRamp = new SRamp();
+    LiftRamp.Rate = 200;
+    LiftRamp.setOutput(Lifter.getSelectedSensorPosition());
+
+    SpeedRamp = new SRamp();
+    SpeedRamp.Rate = 0.06;
+    SpeedRamp.setMaxAccelRate(0.004);
+
+    VisionTable.getEntry("Tape").setBoolean(true);
 
     Comp.start();
   }
 
   boolean wasClimbPressedLast = false;
+  boolean joyPOV0PressedLast = false;
+  boolean joyPOV180PressedLast = false;
   int climbState = 0;
 
   /**
@@ -279,13 +310,72 @@ public class Robot extends TimedRobot {
    */
   @Override
   public void teleopPeriodic() {
-    //Scheduler.getInstance().run();
-    // Cargo ship is -13120
-
     double y = -xbox.getRawAxis(0) * 0.7D;
-    double x = (xbox.getRawAxis(2) - xbox.getRawAxis(3)) * 0.8D;
+    double rawSpeed = xbox.getRawAxis(2) - xbox.getRawAxis(3);
+    SpeedRamp.Setpoint = rawSpeed * 0.8D * (1.0D + Math.max(0, xbox.getRawAxis(4)) * 0.25);
 
-    Drive.arcadeDrive(x, y);
+    SpeedRamp.update();
+
+    boolean seesTape = TapeDetectedEntry.getBoolean(false);
+    
+    if (seesTape) {
+      double tapePitch = TapePitchEntry.getNumber(0).doubleValue();
+      double tapeYaw = TapeYawEntry.getNumber(0).doubleValue();
+      double targetYaw = PitchYawAdjuster.GetYawFromPitch(tapePitch);
+      
+      double diff = targetYaw - tapeYaw;
+      
+      String s = "";
+
+      if (diff > 0) {
+        s = "<-- (" + diff + ")";
+      } else if (diff < 0) {
+        s = "--> (" + diff + ")";
+      }
+
+      if (xbox.getRawButtonPressed(5)) {
+        y += 0.2 * diff;
+      }
+
+      SmartDashboard.putString("TapeDir", s);
+    } else {
+      SmartDashboard.putString("TapeDir", "X");
+    }
+
+    if (xbox.getRawButtonPressed(7)) {
+      Lifter.setSelectedSensorPosition(0);
+      LiftSetpoint = 0;
+      LiftRamp.Setpoint = 0;
+      LiftRamp.setOutput(0);
+    }
+
+    //Scheduler.getInstance().run();
+    // Cargo ship is(n't anymore) -13120
+
+    // The fine adjustment has nothing to do with hammers.
+    // Don't try to use a hammer on the roboRIO. Ever.
+    final int FINE_ADJUSTMENT_AMOUNT = -500;
+
+    if (joystick.getPOV() == 0) {
+      if (!joyPOV0PressedLast) {
+        joyPOV0PressedLast = true;
+        if (LiftSetpoint - FINE_ADJUSTMENT_AMOUNT <= 0)
+          LiftSetpoint -= FINE_ADJUSTMENT_AMOUNT;
+      }
+    } else {
+      joyPOV0PressedLast = false;
+
+      if (joystick.getPOV() == 180) {
+        if (!joyPOV180PressedLast) {
+          joyPOV180PressedLast = true;
+          LiftSetpoint += FINE_ADJUSTMENT_AMOUNT;
+        }
+      } else {
+        joyPOV180PressedLast = false;
+      }
+    }
+
+    Drive.arcadeDrive(SpeedRamp.getOutput(), y);
 
     if (joystick.getRawButtonPressed(11)) {
       LiftSetpoint = HATCH_BOTTOM;
@@ -305,19 +395,32 @@ public class Robot extends TimedRobot {
 
     double liftY = -joystick.getRawAxis(1);
     final double deadband = 0.15;
-    if (Math.abs(liftY) > deadband)
-      LiftSetpoint += (liftY < 0 ? liftY + 0.15 : liftY - 0.15) * 400;//(int)liftEntry.getDouble(0);//
-    
+
+    if (Math.abs(liftY) > deadband) {
+      double change = (liftY < 0 ? liftY + 0.15 : liftY - 0.15) * 200;//(int)liftEntry.getDouble(0);//
+      
+      if (change > 100) {
+        change = 100;
+      } else if (change < -100) {
+        change = -100;
+      }
+
+      LiftRamp.setOutput(LiftRamp.getOutput() + change);
+      LiftRamp.Setpoint += change;
+      LiftSetpoint = (int)LiftRamp.Setpoint;
+    }
+
     if (LiftSetpoint < LIMIT_UP) {
       LiftSetpoint = LIMIT_UP;
     }
     
-    liftRamp.applySetpoint(LiftSetpoint);
-    liftRamp.update();
-    //Lifter.overrideLimitSwitchesEnable
-    // TODO add software upper limit for lift
+    LiftRamp.Setpoint = LiftSetpoint;
+    SmartDashboard.putNumber("LiftSetpoint", LiftRamp.Setpoint);
+    SmartDashboard.putNumber("LiftSetpoint", Lifter.getSelectedSensorPosition());
+    SmartDashboard.putNumber("LiftOutput", LiftRamp.getOutput());
+    LiftRamp.update();
 
-    Lifter.set(ControlMode.Position, liftRamp.getOutput());
+    Lifter.set(ControlMode.Position, LiftRamp.getOutput());
     //Lifter.set(ControlMode.PercentOutput, -joystick.getRawAxis(1));
 
     if (joystick.getRawButtonPressed(4) || xbox.getBButtonPressed())
@@ -353,11 +456,11 @@ public class Robot extends TimedRobot {
     } else if (climbState == 1) {
       ClimbFront.set(DoubleSolenoid.Value.kForward);
       ClimbBack.set(DoubleSolenoid.Value.kForward);
-      BackFootMover.set(Math.min(5 * x, 1.0));
+      BackFootMover.set(Math.max(-1.0, Math.min(5 * SpeedRamp.getOutput(), 1.0)));
     } else {
       ClimbFront.set(DoubleSolenoid.Value.kReverse);
       ClimbBack.set(DoubleSolenoid.Value.kForward);
-      BackFootMover.set(Math.min(5 * x, 1.0));
+      BackFootMover.set(Math.max(-1.0, Math.min(5 * SpeedRamp.getOutput(), 1.0)));
     }
 
   }
