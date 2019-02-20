@@ -710,8 +710,8 @@ if __name__ == "__main__":
     if not readConfig():
         sys.exit(1)
         
-    print("Waiting 45 seconds before start for networktables")
-    time.sleep(45)
+    print("Waiting 60 seconds before start for networktables")
+    time.sleep(60)
 
     # start NetworkTables
     ntinst = NetworkTablesInstance.getDefault()

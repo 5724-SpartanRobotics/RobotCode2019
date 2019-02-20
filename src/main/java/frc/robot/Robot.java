@@ -334,7 +334,8 @@ public class Robot extends TimedRobot {
       }
 
       if (xbox.getRawButtonPressed(5)) {
-        y += 0.2 * diff;
+        final double MAX_AFFECT = 0.3;
+        y += Math.max(Math.min(0.2 * diff, MAX_AFFECT), -MAX_AFFECT);
       }
 
       SmartDashboard.putString("TapeDir", s);
