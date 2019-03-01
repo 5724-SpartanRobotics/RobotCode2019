@@ -181,8 +181,8 @@ orange_blur = 27
 lower_green = np.array([50.17985611510791, 181.16007194244605, 6.879496402877698])
 upper_green = np.array([84.77815699658704, 255.0, 65.70819112627986])
 #define range of orange from cargo ball in HSV
-lower_orange = np.array([0.0,220.14388489208633,116.95143884892087])
-upper_orange = np.array([6.4505119453925035, 255.0, 255.0])
+lower_orange = np.array([0.0, 217.85071942446044, 41.276978417266186])
+upper_orange = np.array([9.522184300341296, 255.0, 255.0])
 
 #Flip image if camera mounted upside down
 def flipImage(frame):
@@ -711,7 +711,7 @@ if __name__ == "__main__":
         sys.exit(1)
         
     print("Waiting 60 seconds before start for networktables")
-    time.sleep(60)
+    time.sleep(1)
 
     # start NetworkTables
     ntinst = NetworkTablesInstance.getDefault()
@@ -739,13 +739,21 @@ if __name__ == "__main__":
     cameraServer = streams[0]
     #Start thread reading camera
     cap = WebcamVideoStream(webcam, cameraServer, image_width, image_height).start()
+    
+    #Get the second camera
+
+    webcam2 = cameras[1]
+    cameraServer2 = streams[1]
+    #Start thread reading camera
+    cap2 = WebcamVideoStream(webcam2, cameraServer2, image_width, image_height).start()
 
     # (optional) Setup a CvSource. This will send images back to the Dashboard
     # Allocating new images is very expensive, always try to preallocate
     img = np.zeros(shape=(image_height, image_width, 3), dtype=np.uint8)
     #Start thread outputing stream
     streamViewer = VideoShow(image_width,image_height, cameraServer, frame=img).start()
-    #cap.autoExpose=True;
+    #cap.autoExpose=True
+    cap2.autoExpose=True
     tape = False
     fps = FPS().start()
     #TOTAL_FRAMES = 200;
@@ -754,13 +762,14 @@ if __name__ == "__main__":
         # Tell the CvSink to grab a frame from the camera and put it
         # in the source image.  If there is an error notify the output.
         timestamp, img = cap.read()
+        timestamp2, frame2 = cap2.read()
         #Uncomment if camera is mounted upside down
         #frame = flipImage(img)
         #Comment out if camera is mounted upside down
         frame = img
         if timestamp == 0:
             # Send the output the error.
-            streamViewer.notifyError(cap.getError());
+            streamViewer.notifyError(cap.getError())
             # skip the rest of the current iteration
             continue
         #Checks if you just want camera for driver (No processing), False by default
@@ -769,18 +778,19 @@ if __name__ == "__main__":
             processed = frame
         else:
             # Checks if you just want camera for Tape processing , True by default
-            if(networkTable.getBoolean("Tape", True)):
-                #Lowers exposure to 0
-                cap.autoExpose = False
-                boxBlur = blurImg(frame, green_blur)
-                threshold = threshold_video(lower_green, upper_green, boxBlur)
-                processed = findTargets(frame, threshold)
-            else:
+            #if(networkTable.getBoolean("Tape", True)):
+            #Lowers exposure to 0
+            cap.autoExpose = False
+            boxBlur = blurImg(frame, green_blur)
+            threshold = threshold_video(lower_green, upper_green, boxBlur)
+            processed = findTargets(frame, threshold)
+            #else:
                 # Checks if you just want camera for Cargo processing, by dent cargo being true, false by default//of everything else being false, true by default
-                cap.autoExpose = True
-                boxBlur = blurImg(frame, orange_blur)
-                threshold = threshold_video(lower_orange, upper_orange, boxBlur)
-                processed = findCargo(frame, threshold)
+            cap2.autoExpose = True
+            boxBlur2 = blurImg(frame2, orange_blur)
+            threshold2 = threshold_video(lower_orange, upper_orange, boxBlur2)
+                #processed = findCargo(frame2, threshold)
+            findCargo(frame2, threshold2)
         #Puts timestamp of camera on netowrk tables
         networkTable.putNumber("VideoTimestamp", timestamp)
         streamViewer.frame = processed
