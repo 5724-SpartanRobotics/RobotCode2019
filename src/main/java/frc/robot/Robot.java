@@ -15,10 +15,12 @@ import edu.wpi.first.wpilibj.DoubleSolenoid;
 import edu.wpi.first.wpilibj.Joystick;
 import edu.wpi.first.wpilibj.Solenoid;
 import edu.wpi.first.wpilibj.Spark;
+import edu.wpi.first.wpilibj.SpeedControllerGroup;
 import edu.wpi.first.wpilibj.TimedRobot;
 import edu.wpi.first.wpilibj.VictorSP;
 import edu.wpi.first.wpilibj.XboxController;
 import edu.wpi.first.wpilibj.DoubleSolenoid.Value;
+import edu.wpi.first.wpilibj.GenericHID.RumbleType;
 import edu.wpi.first.wpilibj.command.Command;
 import edu.wpi.first.wpilibj.drive.DifferentialDrive;
 import edu.wpi.first.networktables.NetworkTable;
@@ -57,6 +59,8 @@ public class Robot extends TimedRobot {
   private DoubleSolenoid ClimbFront;
   private DoubleSolenoid ClimbBack;
   private VictorSP BackFootMover;
+  private Spark FrontFootMover;
+  private SpeedControllerGroup FeetMovers;
   
   private CANSparkMax MainLeft;
   private CANSparkMax AltLeft;
@@ -125,6 +129,8 @@ public class Robot extends TimedRobot {
     ClimbFront = new DoubleSolenoid(PCM_COMP_24V, 2, 3);
 
     BackFootMover = new VictorSP(1);
+    FrontFootMover = new Spark(3);
+    //FeetMovers = new SpeedControllerGroup(BackFootMoverFootMover);
 
     MainRight = new CANSparkMax(9, MotorType.kBrushless);
     AltRight = new CANSparkMax(10, MotorType.kBrushless);
@@ -192,6 +198,18 @@ public class Robot extends TimedRobot {
    */
   @Override
   public void robotPeriodic() {
+    if (MainLeft.getMotorTemperature() >= 85 || AltLeft.getMotorTemperature() >= 85) {
+      xbox.setRumble(RumbleType.kLeftRumble, 0.5);
+    } else {
+      xbox.setRumble(RumbleType.kLeftRumble, 0);
+    }
+    
+    if (MainRight.getMotorTemperature() >= 85 || AltRight.getMotorTemperature() >= 85) {
+      xbox.setRumble(RumbleType.kRightRumble, 0.5);
+    } else {
+      xbox.setRumble(RumbleType.kRightRumble, 0);
+    }
+
     //SmartDashboard.putNumber("DaTa", NetworkTableInstance.getDefault().getTable("VisionTable").getEntry("THIS IS A RANDOM NUMBER").getNumber(-1).doubleValue());
     //SmartDashboard.putNumber("LiftSetpoint", LiftSetpoint);
     //SmartDashboard.putNumber("LiftEncoderPos", Lifter.getSelectedSensorPosition());
@@ -300,10 +318,10 @@ public class Robot extends TimedRobot {
     Comp.start();
   }
 
-  boolean wasClimbPressedLast = false;
   boolean joyPOV0PressedLast = false;
   boolean joyPOV180PressedLast = false;
-  int climbState = 0;
+  boolean IsClimbingFront = false;
+  boolean IsClimbingBack = false;
 
   /**
    * This function is called periodically during operator control.
@@ -312,7 +330,13 @@ public class Robot extends TimedRobot {
   public void teleopPeriodic() {
     double y = -xbox.getRawAxis(0) * 0.7D;
     double rawSpeed = xbox.getRawAxis(2) - xbox.getRawAxis(3);
-    SpeedRamp.Setpoint = rawSpeed * 0.8D * (1.0D + Math.max(0, xbox.getRawAxis(4)) * 0.25);
+
+    // Super slow speed
+    if (xbox.getAButton()) {
+      SpeedRamp.Setpoint = rawSpeed * 0.45D;
+    } else {
+      SpeedRamp.Setpoint = rawSpeed * 0.8D * (1.0D + Math.max(0, xbox.getRawAxis(4)) * 0.25);
+    }
 
     SpeedRamp.update();
 
@@ -323,7 +347,7 @@ public class Robot extends TimedRobot {
       double tapeYaw = TapeYawEntry.getNumber(0).doubleValue();
       double targetYaw = PitchYawAdjuster.GetYawFromPitch(tapePitch);
       
-      double diff = targetYaw - tapeYaw;
+      double diff = (targetYaw - tapeYaw) * 2;
       
       String s = "";
 
@@ -333,9 +357,9 @@ public class Robot extends TimedRobot {
         s = "--> (" + diff + ")";
       }
 
-      if (xbox.getRawButtonPressed(5)) {
-        final double MAX_AFFECT = 0.3;
-        y += Math.max(Math.min(0.2 * diff, MAX_AFFECT), -MAX_AFFECT);
+      if (xbox.getRawButton(5)) {
+        final double MAX_AFFECT = 0.8;
+        y += Math.max(Math.min(diff, MAX_AFFECT), -MAX_AFFECT);
       }
 
       SmartDashboard.putString("TapeDir", s);
@@ -377,6 +401,7 @@ public class Robot extends TimedRobot {
     }
 
     Drive.arcadeDrive(SpeedRamp.getOutput(), y);
+    //Drive.arcadeDrive(0, 0);
 
     if (joystick.getRawButtonPressed(11)) {
       LiftSetpoint = HATCH_BOTTOM;
@@ -424,9 +449,9 @@ public class Robot extends TimedRobot {
     Lifter.set(ControlMode.Position, LiftRamp.getOutput());
     //Lifter.set(ControlMode.PercentOutput, -joystick.getRawAxis(1));
 
-    if (joystick.getRawButtonPressed(4) || xbox.getBButtonPressed())
+    if (joystick.getRawButtonPressed(4)/* || xbox.getBButtonPressed()*/)
       ArmsClosed = !ArmsClosed;
-    if (joystick.getRawButtonPressed(3) || xbox.getAButtonPressed())
+    if (joystick.getRawButtonPressed(3)/* || xbox.getAButtonPressed()*/)
       ArmsExtended = !ArmsExtended;
 
     ArmExtender.set(ArmsExtended);
@@ -436,33 +461,54 @@ public class Robot extends TimedRobot {
     //Diagnostics.writeDouble("DriveY", y);
 
     // X = out, Y = in
-    ArmGrippers.set(xbox.getXButton() || joystick.getRawButton(6) ? -1D : xbox.getYButton() || joystick.getRawButton(5) ? 1D : 0);
+    ArmGrippers.set(/*xbox.getXButton() || */joystick.getRawButton(6) ? -1D : /*xbox.getYButton() ||*/ joystick.getRawButton(5) ? 1D : 0);
     
-    boolean climbPressed = xbox.getStartButton() && joystick.getRawButton(2);
+    boolean climbSafety = joystick.getRawButton(2);
 
-    if (climbPressed) {
-      if (!wasClimbPressedLast) {
-        wasClimbPressedLast = true;
-        climbState++;
-        climbState %= 3;
+    if (climbSafety) {
+      if (xbox.getYButtonPressed()) {
+        IsClimbingFront = !IsClimbingFront;
       }
+      if (xbox.getXButtonPressed()) {
+        IsClimbingBack = !IsClimbingBack;
+      }
+      if (xbox.getRawButtonPressed(8)) {
+        // Set them all to the opposite of where the front
+        // currently is.
+        IsClimbingFront = IsClimbingBack = !IsClimbingFront;
+      }
+    }
+    //FrontFootMover.set(1);//Math.max(-1.0, Math.min(5 * -SpeedRamp.getOutput(), 1.0)));
+    //BackFootMover.set(Math.max(-1.0, Math.min(5 * -SpeedRamp.getOutput(), 1.0)));
+
+    double footSpeed = Math.max(-1.0, Math.min(rawSpeed * 1.25, 1.0F));
+
+    if (IsClimbingFront) {
+      ClimbFront.set(DoubleSolenoid.Value.kForward);
+      FrontFootMover.set(footSpeed);
     } else {
-      wasClimbPressedLast = false;
+      ClimbFront.set(DoubleSolenoid.Value.kReverse);
+      FrontFootMover.set(0);
     }
 
-    if (climbState == 0) {
-      ClimbFront.set(DoubleSolenoid.Value.kReverse);
+    if (IsClimbingBack) {
+      ClimbBack.set(DoubleSolenoid.Value.kForward);
+      BackFootMover.set(footSpeed);
+    } else {
       ClimbBack.set(DoubleSolenoid.Value.kReverse);
       BackFootMover.set(0);
+    }
+
+    /*if (climbState == 0) {
     } else if (climbState == 1) {
       ClimbFront.set(DoubleSolenoid.Value.kForward);
       ClimbBack.set(DoubleSolenoid.Value.kForward);
-      BackFootMover.set(Math.max(-1.0, Math.min(5 * SpeedRamp.getOutput(), 1.0)));
+      FeetMovers.set(Math.max(-1.0, Math.min(5 * SpeedRamp.getOutput(), 1.0)));
     } else {
       ClimbFront.set(DoubleSolenoid.Value.kReverse);
       ClimbBack.set(DoubleSolenoid.Value.kForward);
-      BackFootMover.set(Math.max(-1.0, Math.min(5 * SpeedRamp.getOutput(), 1.0)));
-    }
+      FeetMovers.set(Math.max(-1.0, Math.min(5 * SpeedRamp.getOutput(), 1.0)));
+    }*/
 
   }
 
