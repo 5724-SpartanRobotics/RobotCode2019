@@ -129,7 +129,7 @@ public class Robot extends TimedRobot {
     ClimbFront = new DoubleSolenoid(PCM_COMP_24V, 2, 3);
 
     BackFootMover = new VictorSP(1);
-    FrontFootMover = new Spark(3);
+    FrontFootMover = new Spark(2);
     //FeetMovers = new SpeedControllerGroup(BackFootMoverFootMover);
 
     MainRight = new CANSparkMax(9, MotorType.kBrushless);
@@ -347,7 +347,7 @@ public class Robot extends TimedRobot {
       double tapeYaw = TapeYawEntry.getNumber(0).doubleValue();
       double targetYaw = PitchYawAdjuster.GetYawFromPitch(tapePitch);
       
-      double diff = (targetYaw - tapeYaw) * 2;
+      double diff = -(targetYaw - tapeYaw) * 2;
       
       String s = "";
 
@@ -359,7 +359,13 @@ public class Robot extends TimedRobot {
 
       if (xbox.getRawButton(5)) {
         final double MAX_AFFECT = 0.8;
-        y += Math.max(Math.min(diff, MAX_AFFECT), -MAX_AFFECT);
+        if (diff > MAX_AFFECT) {
+          diff = MAX_AFFECT;
+        } else if (diff < -MAX_AFFECT) {
+          diff = -MAX_AFFECT;
+        }
+
+        y += diff;
       }
 
       SmartDashboard.putString("TapeDir", s);
