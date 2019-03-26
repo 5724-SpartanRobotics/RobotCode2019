@@ -198,13 +198,14 @@ public class Robot extends TimedRobot {
    */
   @Override
   public void robotPeriodic() {
-    if (MainLeft.getMotorTemperature() >= 85 || AltLeft.getMotorTemperature() >= 85) {
+    final int MAX_TEMP = 100;
+    if (MainLeft.getMotorTemperature() >= MAX_TEMP || AltLeft.getMotorTemperature() >= MAX_TEMP) {
       xbox.setRumble(RumbleType.kLeftRumble, 0.5);
     } else {
       xbox.setRumble(RumbleType.kLeftRumble, 0);
     }
     
-    if (MainRight.getMotorTemperature() >= 85 || AltRight.getMotorTemperature() >= 85) {
+    if (MainRight.getMotorTemperature() >= MAX_TEMP || AltRight.getMotorTemperature() >= MAX_TEMP) {
       xbox.setRumble(RumbleType.kRightRumble, 0.5);
     } else {
       xbox.setRumble(RumbleType.kRightRumble, 0);
@@ -300,13 +301,15 @@ public class Robot extends TimedRobot {
       m_autonomousCommand.cancel();
     }
 
+    clearAllButtonStates();
+
     ArmsExtended = ArmsClosed = false;
     ClimbFront.set(Value.kReverse);
     ClimbBack.set(Value.kReverse);
 
     LiftSetpoint = Lifter.getSelectedSensorPosition();
     LiftRamp = new SRamp();
-    LiftRamp.Rate = 200;
+    LiftRamp.Rate = 300;
     LiftRamp.setOutput(Lifter.getSelectedSensorPosition());
 
     SpeedRamp = new SRamp();
@@ -316,6 +319,19 @@ public class Robot extends TimedRobot {
     VisionTable.getEntry("Tape").setBoolean(true);
 
     Comp.start();
+  }
+
+  // This checks all the buttons at teleop enable so that
+  // the check for pressed since last check in teleopPeriodic
+  // does not check between disables.
+  private void clearAllButtonStates() {
+    for (int i = 1; i <= 10; i++) {
+      xbox.getRawButtonPressed(i);
+    }
+
+    for (int i = 1; i <= 12; i++) {
+      joystick.getRawButtonPressed(i);
+    }
   }
 
   boolean joyPOV0PressedLast = false;
@@ -343,11 +359,14 @@ public class Robot extends TimedRobot {
     boolean seesTape = TapeDetectedEntry.getBoolean(false);
     
     if (seesTape) {
-      double tapePitch = TapePitchEntry.getNumber(0).doubleValue();
+      //double tapePitch = TapePitchEntry.getNumber(0).doubleValue();
       double tapeYaw = TapeYawEntry.getNumber(0).doubleValue();
-      double targetYaw = PitchYawAdjuster.GetYawFromPitch(tapePitch);
+      final double TARGET_YAW = 0;//PitchYawAdjuster.GetYawFromPitch(tapePitch);
+
+      //SmartDashboard.putNumber("tapePitch", tapePitch);
+      //SmartDashboard.putNumber("tapeYaw", tapeYaw);
       
-      double diff = -(targetYaw - tapeYaw) * 2;
+      double diff = tapeYaw * 2;
       
       String s = "";
 
@@ -358,14 +377,14 @@ public class Robot extends TimedRobot {
       }
 
       if (xbox.getRawButton(5)) {
-        final double MAX_AFFECT = 0.8;
+        final double MAX_AFFECT = 0.4;
         if (diff > MAX_AFFECT) {
           diff = MAX_AFFECT;
         } else if (diff < -MAX_AFFECT) {
           diff = -MAX_AFFECT;
         }
 
-        y += diff;
+        y -= diff;
       }
 
       SmartDashboard.putString("TapeDir", s);
@@ -470,15 +489,21 @@ public class Robot extends TimedRobot {
     ArmGrippers.set(/*xbox.getXButton() || */joystick.getRawButton(6) ? -1D : /*xbox.getYButton() ||*/ joystick.getRawButton(5) ? 1D : 0);
     
     boolean climbSafety = joystick.getRawButton(2);
+    
+    // Have to check all of these every update to make sure it was pressed
+    // between now and the last update
+    boolean climbFront = xbox.getYButtonPressed();
+    boolean climbBack = xbox.getXButtonPressed();
+    boolean climbBoth = xbox.getRawButtonPressed(8);
 
     if (climbSafety) {
-      if (xbox.getYButtonPressed()) {
+      if (climbFront) {
         IsClimbingFront = !IsClimbingFront;
       }
-      if (xbox.getXButtonPressed()) {
+      if (climbBack) {
         IsClimbingBack = !IsClimbingBack;
       }
-      if (xbox.getRawButtonPressed(8)) {
+      if (climbBoth) {
         // Set them all to the opposite of where the front
         // currently is.
         IsClimbingFront = IsClimbingBack = !IsClimbingFront;
