@@ -91,7 +91,7 @@ public class Robot extends TimedRobot {
   //public static final int HATCH_MIDDLE = -13490;
   //public static final int HATCH_TOP = -22085;
   // Hook #1 Values
-  public static final int HATCH_BOTTOM = -4016;//-4805;
+  public static final int HATCH_BOTTOM = -3516;//-4805;
   public static final int HATCH_MIDDLE = -13120;
   public static final int HATCH_TOP = -21214;//-23320;
   public static final int CARGO_PICKUP = 0;
@@ -347,7 +347,12 @@ public class Robot extends TimedRobot {
     double y = -xbox.getRawAxis(0) * 0.7D;
     double rawSpeed = xbox.getRawAxis(2) - xbox.getRawAxis(3);
 
-    // Super slow speed
+    // Climb Speed
+    if (xbox.getRawButton(6)) {
+      rawSpeed = -0.3D;
+    }
+
+    // Super slow mode
     if (xbox.getAButton()) {
       SpeedRamp.Setpoint = rawSpeed * 0.45D;
     } else {
@@ -359,6 +364,7 @@ public class Robot extends TimedRobot {
     boolean seesTape = TapeDetectedEntry.getBoolean(false);
     
     if (seesTape) {
+      final double ADJUST_CONST = 0.13281734;
       //double tapePitch = TapePitchEntry.getNumber(0).doubleValue();
       double tapeYaw = TapeYawEntry.getNumber(0).doubleValue();
       final double TARGET_YAW = 0;//PitchYawAdjuster.GetYawFromPitch(tapePitch);
@@ -366,7 +372,7 @@ public class Robot extends TimedRobot {
       //SmartDashboard.putNumber("tapePitch", tapePitch);
       //SmartDashboard.putNumber("tapeYaw", tapeYaw);
       
-      double diff = tapeYaw * 2;
+      double diff = tapeYaw - ADJUST_CONST;
       
       String s = "";
 
@@ -512,7 +518,7 @@ public class Robot extends TimedRobot {
     //FrontFootMover.set(1);//Math.max(-1.0, Math.min(5 * -SpeedRamp.getOutput(), 1.0)));
     //BackFootMover.set(Math.max(-1.0, Math.min(5 * -SpeedRamp.getOutput(), 1.0)));
 
-    double footSpeed = Math.max(-1.0, Math.min(rawSpeed * 1.25, 1.0F));
+    double footSpeed = Math.max(-1.0, Math.min(rawSpeed * 3, 1.0F));
 
     if (IsClimbingFront) {
       ClimbFront.set(DoubleSolenoid.Value.kForward);
