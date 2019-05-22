@@ -184,7 +184,7 @@ public class Robot extends TimedRobot {
     TapePitchEntry = VisionTable.getEntry("tapePitch");
     TapeYawEntry = VisionTable.getEntry("tapeYaw");
 
-    CameraServer.getInstance().startAutomaticCapture(0);
+    CameraServer.getInstance().startAutomaticCapture();
   }
 
   /**
@@ -344,7 +344,7 @@ public class Robot extends TimedRobot {
    */
   @Override
   public void teleopPeriodic() {
-    double y = -xbox.getRawAxis(0) * 0.7D;
+    double y = -xbox.getRawAxis(0) * 0.7D * (1.0D + Math.max(0, xbox.getRawAxis(4)) * 1.4285714D);
     double rawSpeed = xbox.getRawAxis(2) - xbox.getRawAxis(3);
 
     // Climb Speed
