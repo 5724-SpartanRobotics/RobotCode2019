@@ -7,6 +7,8 @@
 
 package frc.robot;
 
+import edu.wpi.cscore.UsbCamera;
+import edu.wpi.cscore.VideoMode.PixelFormat;
 import edu.wpi.first.cameraserver.CameraServer;
 import edu.wpi.first.networktables.NetworkTableEntry;
 import edu.wpi.first.networktables.NetworkTableInstance;
@@ -20,6 +22,7 @@ import edu.wpi.first.wpilibj.TimedRobot;
 import edu.wpi.first.wpilibj.VictorSP;
 import edu.wpi.first.wpilibj.XboxController;
 import edu.wpi.first.wpilibj.DoubleSolenoid.Value;
+import edu.wpi.first.wpilibj.GenericHID.Hand;
 import edu.wpi.first.wpilibj.GenericHID.RumbleType;
 import edu.wpi.first.wpilibj.command.Command;
 import edu.wpi.first.wpilibj.drive.DifferentialDrive;
@@ -36,6 +39,7 @@ import java.util.Map;
 import com.ctre.phoenix.motorcontrol.ControlMode;
 import com.ctre.phoenix.motorcontrol.NeutralMode;
 import com.ctre.phoenix.motorcontrol.can.TalonSRX;
+import com.ctre.phoenix.motorcontrol.can.VictorSPX;
 import com.revrobotics.CANSparkMax;
 import com.revrobotics.CANSparkMax.IdleMode;
 import com.revrobotics.CANSparkMaxLowLevel.MotorType;
@@ -56,8 +60,8 @@ public class Robot extends TimedRobot {
   private XboxController xbox;
   private Joystick joystick;
 
-  private DoubleSolenoid ClimbFront;
-  private DoubleSolenoid ClimbBack;
+  //private DoubleSolenoid ClimbFront;
+  //private DoubleSolenoid ClimbBack;
   private VictorSP BackFootMover;
   private Spark FrontFootMover;
   private SpeedControllerGroup FeetMovers;
@@ -73,6 +77,9 @@ public class Robot extends TimedRobot {
   private TalonSRX Lifter;
   private TalonSRX LiftFollower;
 
+  private VictorSPX LegFrontL;
+  private VictorSPX LegFrontR;
+
   private int LiftSetpoint;
   
   private Compressor Comp;
@@ -82,9 +89,6 @@ public class Robot extends TimedRobot {
   private Spark ArmGrippers;
   private boolean ArmsExtended = false;
   private boolean ArmsClosed = false;
-
-  public static final int PCM_COMP_24V = 1;
-  public static final int PCM_12V = 2;
 
   // Hook #2 Values
   //public static final int HATCH_BOTTOM = -3602;
@@ -112,6 +116,17 @@ public class Robot extends TimedRobot {
   Command m_autonomousCommand;
   SendableChooser<Command> m_chooser = new SendableChooser<>();
 
+  // LED stuff
+  public NetworkTable LedTable;
+  public NetworkTableEntry LedScript;
+  public NetworkTableEntry LedScriptArgument;
+
+  // SAFETY MODE
+  public static final boolean SAFETY_MODE = true;
+  private boolean safetyTripped = false;
+  private static final int MAX_SAFETY_COUNT = 50;
+  private int safetyCount = MAX_SAFETY_COUNT;
+
   /**
    * This function is run when the robot is first started up and should be used
    * for any initialization code.
@@ -123,10 +138,12 @@ public class Robot extends TimedRobot {
     // chooser.addOption("My Auto", new MyAutoCommand());
     SmartDashboard.putData("Auto mode", m_chooser);
 
-    Comp = new Compressor(PCM_COMP_24V);
+    Comp = new Compressor();
 
-    ClimbBack = new DoubleSolenoid(PCM_COMP_24V, 0, 1);
-    ClimbFront = new DoubleSolenoid(PCM_COMP_24V, 2, 3);
+    //ClimbBack = new DoubleSolenoid(PCM_COMP_24V, 0, 1);
+    //ClimbFront = new DoubleSolenoid(PCM_COMP_24V, 2, 3);
+    LegFrontL = new VictorSPX(30);
+    LegFrontR = new VictorSPX(31);
 
     BackFootMover = new VictorSP(1);
     FrontFootMover = new Spark(2);
@@ -164,8 +181,8 @@ public class Robot extends TimedRobot {
     LiftFollower.follow(Lifter);
     LiftFollower.setNeutralMode(NeutralMode.Brake);
 
-    ArmExtender = new Solenoid(PCM_12V, 0);
-    ArmOpener = new Solenoid(PCM_12V, 1);
+    ArmExtender = new Solenoid(0);
+    ArmOpener = new Solenoid(1);
     ArmGrippers = new Spark(0);
 
     //Diagnostics = new DiagnosticsLogger();
@@ -179,13 +196,35 @@ public class Robot extends TimedRobot {
     LiftRamp = new SRamp();
     SpeedRamp = new SRamp();
 
-    VisionTable = NetworkTableInstance.getDefault().getTable("ChickenVision");
+    NetworkTableInstance nt = NetworkTableInstance.getDefault();
+
+    VisionTable = nt.getTable("ChickenVision");
     TapeDetectedEntry = VisionTable.getEntry("tapeDetected");
     TapePitchEntry = VisionTable.getEntry("tapePitch");
     TapeYawEntry = VisionTable.getEntry("tapeYaw");
 
-    CameraServer.getInstance().startAutomaticCapture();
+    LedTable = nt.getTable("LedInfo");
+    LedScript = LedTable.getEntry("CurrentScript");
+    LedScriptArgument = LedTable.getEntry("ScriptArgument");
+
+    UsbCamera cam = CameraServer.getInstance().startAutomaticCapture();
+    cam.setPixelFormat(PixelFormat.kMJPEG);
+    cam.setResolution(320, 240);
+    cam.setFPS(20);
+    
+
+    LedScript.setString("ChristmasCombo1");
+    LedScriptArgument.setString("");
   }
+
+  private static final String[][] LED_SCRIPTS = { {"ChristmasCombo1"}, 
+                                                  {"Binary", "{\"msg\":\"We are spartans 5724\"}"}, {"ChristmasCombo1"},
+                                                  {"ColorWaves"}, {"ChristmasCombo1"},
+                                                  {"RandomChristmas"}, {"ChristmasCombo1"},
+                                                  {"MultiColorScript"}, {"ChristmasCombo1"},
+                                                  {"MorseCode", "We are spartans 5724"}, {"ChristmasCombo1"} };
+  private int count = 0;
+  private final int SCRIPT_LENGTH = 6000;
 
   /**
    * This function is called every robot packet, no matter the mode. Use this for
@@ -198,6 +237,23 @@ public class Robot extends TimedRobot {
    */
   @Override
   public void robotPeriodic() {
+    count++;
+
+    if (count < 0) {
+      count = 0;
+    }
+
+    int scriptIdx = count / SCRIPT_LENGTH;
+
+    String[] script = LED_SCRIPTS[scriptIdx % (LED_SCRIPTS.length)];
+
+    LedScript.setString(script[0]);
+    
+    if (script.length > 1) {
+      LedScriptArgument.setString(script[1]);
+    }
+
+
     final int MAX_TEMP = 100;
     if (MainLeft.getMotorTemperature() >= MAX_TEMP || AltLeft.getMotorTemperature() >= MAX_TEMP) {
       xbox.setRumble(RumbleType.kLeftRumble, 0.5);
@@ -301,11 +357,13 @@ public class Robot extends TimedRobot {
       m_autonomousCommand.cancel();
     }
 
+    safetyCount = 0;
+
     clearAllButtonStates();
 
     ArmsExtended = ArmsClosed = false;
-    ClimbFront.set(Value.kReverse);
-    ClimbBack.set(Value.kReverse);
+    //ClimbFront.set(Value.kReverse);
+    //ClimbBack.set(Value.kReverse);
 
     LiftSetpoint = Lifter.getSelectedSensorPosition();
     LiftRamp = new SRamp();
@@ -347,13 +405,38 @@ public class Robot extends TimedRobot {
     double y = -xbox.getRawAxis(0) * 0.7D * (1.0D + Math.max(0, xbox.getRawAxis(4)) * 1.4285714D);
     double rawSpeed = xbox.getRawAxis(2) - xbox.getRawAxis(3);
 
+    if (SAFETY_MODE) {
+      y *= 0.75D;
+
+      if (xbox.getBumper(Hand.kLeft) && joystick.getRawButton(7)) {
+        if (safetyCount > 0) {
+          safetyCount--;
+          SmartDashboard.putNumber("Safety Count", safetyCount);
+
+          if (safetyCount == 0) {
+            safetyTripped = false;
+            SmartDashboard.putBoolean("Safety Tripped", safetyTripped);
+          }
+        } else {
+          safetyTripped = false;
+        }
+      } else {
+        safetyTripped = true;
+        safetyCount = MAX_SAFETY_COUNT;
+        SmartDashboard.putNumber("Safety Count", safetyCount);
+        SmartDashboard.putBoolean("Safety Tripped", safetyTripped);
+      }
+    } else {
+      safetyTripped = false;
+    }
+
     // Climb Speed
     if (xbox.getRawButton(6)) {
       rawSpeed = -0.3D;
     }
 
     // Super slow mode
-    if (xbox.getAButton()) {
+    if (xbox.getAButton() || SAFETY_MODE) {
       SpeedRamp.Setpoint = rawSpeed * 0.45D;
     } else {
       SpeedRamp.Setpoint = rawSpeed * 0.8D * (1.0D + Math.max(0, xbox.getRawAxis(4)) * 0.25);
@@ -363,7 +446,7 @@ public class Robot extends TimedRobot {
 
     boolean seesTape = TapeDetectedEntry.getBoolean(false);
     
-    if (seesTape) {
+    if (seesTape && !safetyTripped) {
       final double ADJUST_CONST = 0.13281734;
       //double tapePitch = TapePitchEntry.getNumber(0).doubleValue();
       double tapeYaw = TapeYawEntry.getNumber(0).doubleValue();
@@ -382,7 +465,7 @@ public class Robot extends TimedRobot {
         s = "--> (" + diff + ")";
       }
 
-      if (xbox.getRawButton(5)) {
+      if (/*xbox.getRawButton(5) This is now taken for the safety button*/false) {
         final double MAX_AFFECT = 0.4;
         if (diff > MAX_AFFECT) {
           diff = MAX_AFFECT;
@@ -412,63 +495,66 @@ public class Robot extends TimedRobot {
     // Don't try to use a hammer on the roboRIO. Ever.
     final int FINE_ADJUSTMENT_AMOUNT = -500;
 
-    if (joystick.getPOV() == 0) {
-      if (!joyPOV0PressedLast) {
-        joyPOV0PressedLast = true;
-        if (LiftSetpoint - FINE_ADJUSTMENT_AMOUNT <= 0)
-          LiftSetpoint -= FINE_ADJUSTMENT_AMOUNT;
-      }
-    } else {
-      joyPOV0PressedLast = false;
-
-      if (joystick.getPOV() == 180) {
-        if (!joyPOV180PressedLast) {
-          joyPOV180PressedLast = true;
-          LiftSetpoint += FINE_ADJUSTMENT_AMOUNT;
+    if (!safetyTripped) {
+      if (joystick.getPOV() == 0) {
+        if (!joyPOV0PressedLast) {
+          joyPOV0PressedLast = true;
+          if (LiftSetpoint - FINE_ADJUSTMENT_AMOUNT <= 0)
+            LiftSetpoint -= FINE_ADJUSTMENT_AMOUNT;
         }
       } else {
-        joyPOV180PressedLast = false;
-      }
-    }
+        joyPOV0PressedLast = false;
 
-    Drive.arcadeDrive(SpeedRamp.getOutput(), y);
-    //Drive.arcadeDrive(0, 0);
-
-    if (joystick.getRawButtonPressed(11)) {
-      LiftSetpoint = HATCH_BOTTOM;
-    } else if (joystick.getRawButtonPressed(9)) {
-      LiftSetpoint = HATCH_MIDDLE;
-    } else if (joystick.getRawButtonPressed(7)) {
-      LiftSetpoint = HATCH_TOP;
-    } else if (joystick.getRawButtonPressed(12)) {
-      LiftSetpoint = CARGO_BOTTOM;
-    } else if (joystick.getRawButtonPressed(10)) {
-      LiftSetpoint = CARGO_MIDDLE;
-    } else if (joystick.getRawButtonPressed(8)) {
-      LiftSetpoint = CARGO_TOP;
-    } else if (joystick.getRawButtonPressed(1)) {
-      LiftSetpoint = CARGO_FLOOR;
-    }
-
-    double liftY = -joystick.getRawAxis(1);
-    final double deadband = 0.15;
-
-    if (Math.abs(liftY) > deadband) {
-      double change = (liftY < 0 ? liftY + 0.15 : liftY - 0.15) * 200;//(int)liftEntry.getDouble(0);//
-      
-      if (change > 100) {
-        change = 100;
-      } else if (change < -100) {
-        change = -100;
+        if (joystick.getPOV() == 180) {
+          if (!joyPOV180PressedLast) {
+            joyPOV180PressedLast = true;
+            LiftSetpoint += FINE_ADJUSTMENT_AMOUNT;
+          }
+        } else {
+          joyPOV180PressedLast = false;
+        }
       }
 
-      LiftRamp.setOutput(LiftRamp.getOutput() + change);
-      LiftRamp.Setpoint += change;
-      LiftSetpoint = (int)LiftRamp.Setpoint;
-    }
+      Drive.arcadeDrive(SpeedRamp.getOutput(), y);
 
-    if (LiftSetpoint < LIMIT_UP) {
-      LiftSetpoint = LIMIT_UP;
+      if (joystick.getRawButtonPressed(11)) {
+        LiftSetpoint = HATCH_BOTTOM;
+      } else if (joystick.getRawButtonPressed(9)) {
+        LiftSetpoint = HATCH_MIDDLE;
+      } else if (joystick.getRawButtonPressed(7)) {
+        // This button is now used for safety mode LiftSetpoint = HATCH_TOP;
+      } else if (joystick.getRawButtonPressed(12)) {
+        LiftSetpoint = CARGO_BOTTOM;
+      } else if (joystick.getRawButtonPressed(10)) {
+        LiftSetpoint = CARGO_MIDDLE;
+      } else if (joystick.getRawButtonPressed(8)) {
+        //LiftSetpoint = CARGO_TOP;
+      } else if (joystick.getRawButtonPressed(1)) {
+        LiftSetpoint = CARGO_FLOOR;
+      }
+
+      double liftY = -joystick.getRawAxis(1);
+      final double deadband = 0.15;
+
+      if (Math.abs(liftY) > deadband) {
+        double change = (liftY < 0 ? liftY + 0.15 : liftY - 0.15) * 200;//(int)liftEntry.getDouble(0);//
+        
+        if (change > 100) {
+          change = 100;
+        } else if (change < -100) {
+          change = -100;
+        }
+
+        LiftRamp.setOutput(LiftRamp.getOutput() + change);
+        LiftRamp.Setpoint += change;
+        LiftSetpoint = (int)LiftRamp.Setpoint;
+      }
+
+      if (LiftSetpoint < LIMIT_UP) {
+        LiftSetpoint = LIMIT_UP;
+      }
+    } else {
+      Drive.arcadeDrive(0, 0);
     }
     
     LiftRamp.Setpoint = LiftSetpoint;
@@ -480,10 +566,12 @@ public class Robot extends TimedRobot {
     Lifter.set(ControlMode.Position, LiftRamp.getOutput());
     //Lifter.set(ControlMode.PercentOutput, -joystick.getRawAxis(1));
 
-    if (joystick.getRawButtonPressed(4)/* || xbox.getBButtonPressed()*/)
-      ArmsClosed = !ArmsClosed;
-    if (joystick.getRawButtonPressed(3)/* || xbox.getAButtonPressed()*/)
-      ArmsExtended = !ArmsExtended;
+    if (!safetyTripped) {
+      if (joystick.getRawButtonPressed(4)/* || xbox.getBButtonPressed()*/)
+        ArmsClosed = !ArmsClosed;
+      if (joystick.getRawButtonPressed(3)/* || xbox.getAButtonPressed()*/)
+        ArmsExtended = !ArmsExtended;
+    }
 
     ArmExtender.set(ArmsExtended);
     ArmOpener.set(ArmsClosed);
@@ -492,21 +580,38 @@ public class Robot extends TimedRobot {
     //Diagnostics.writeDouble("DriveY", y);
 
     // X = out, Y = in
-    ArmGrippers.set(/*xbox.getXButton() || */joystick.getRawButton(6) ? -1D : /*xbox.getYButton() ||*/ joystick.getRawButton(5) ? 1D : 0);
+
+    final double GRAB_SPEED;
+
+    if (SAFETY_MODE) {
+      GRAB_SPEED = 0.8D;
+    } else {
+      GRAB_SPEED = 1D;
+    }
     
-    boolean climbSafety = joystick.getRawButton(2);
+    if (!safetyTripped) {
+      ArmGrippers.set(/*xbox.getXButton() || */joystick.getRawButton(6) ? -GRAB_SPEED : /*xbox.getYButton() ||*/ joystick.getRawButton(5) ? GRAB_SPEED : 0);
+    } else {
+      ArmGrippers.set(0);
+    }
+
+    boolean climbSafety = joystick.getRawButton(2) && !safetyTripped;
     
     // Have to check all of these every update to make sure it was pressed
     // between now and the last update
-    boolean climbFront = xbox.getYButtonPressed();
-    boolean climbBack = xbox.getXButtonPressed();
-    boolean climbBoth = xbox.getRawButtonPressed(8);
+    boolean climbFront = xbox.getYButton/*Pressed*/();
+    boolean climbBack = xbox.getXButton/*Pressed*/();
+    boolean climbBoth = xbox.getRawButton/*Pressed*/(8);
 
-    if (climbSafety) {
+    if (climbSafety && (climbFront || climbBack)) {
       if (climbFront) {
+        LegFrontR.set(ControlMode.PercentOutput, 1);
+        LegFrontL.set(ControlMode.PercentOutput, -1);
         IsClimbingFront = !IsClimbingFront;
       }
       if (climbBack) {
+        LegFrontR.set(ControlMode.PercentOutput, -0.75);
+        LegFrontL.set(ControlMode.PercentOutput, 0.75);
         IsClimbingBack = !IsClimbingBack;
       }
       if (climbBoth) {
@@ -514,25 +619,30 @@ public class Robot extends TimedRobot {
         // currently is.
         IsClimbingFront = IsClimbingBack = !IsClimbingFront;
       }
+    } else {
+      LegFrontR.set(ControlMode.PercentOutput, 0);
+      LegFrontL.set(ControlMode.PercentOutput, 0);
     }
     //FrontFootMover.set(1);//Math.max(-1.0, Math.min(5 * -SpeedRamp.getOutput(), 1.0)));
     //BackFootMover.set(Math.max(-1.0, Math.min(5 * -SpeedRamp.getOutput(), 1.0)));
 
     double footSpeed = Math.max(-1.0, Math.min(rawSpeed * 3, 1.0F));
 
-    if (IsClimbingFront) {
-      ClimbFront.set(DoubleSolenoid.Value.kForward);
+    if (IsClimbingFront && !safetyTripped) {
+      //ClimbFront.set(DoubleSolenoid.Value.kForward);
       FrontFootMover.set(footSpeed);
     } else {
-      ClimbFront.set(DoubleSolenoid.Value.kReverse);
+      //ClimbFront.set(DoubleSolenoid.Value.kReverse);
+      LegFrontR.set(ControlMode.PercentOutput, 0);
+      LegFrontL.set(ControlMode.PercentOutput, 0);
       FrontFootMover.set(0);
     }
 
-    if (IsClimbingBack) {
-      ClimbBack.set(DoubleSolenoid.Value.kForward);
+    if (IsClimbingBack && !safetyTripped) {
+      //ClimbBack.set(DoubleSolenoid.Value.kForward);
       BackFootMover.set(footSpeed);
     } else {
-      ClimbBack.set(DoubleSolenoid.Value.kReverse);
+      //ClimbBack.set(DoubleSolenoid.Value.kReverse);
       BackFootMover.set(0);
     }
 
