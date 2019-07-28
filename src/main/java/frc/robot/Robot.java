@@ -66,6 +66,9 @@ public class Robot extends TimedRobot {
   private Spark FrontFootMover;
   private SpeedControllerGroup FeetMovers;
   
+  // Fun fact: on the 2019 robot, 1 turn of the drivetrain wheels is approximately
+  // 4.831113433837891 encoder "rotations" (which should be 4.831113433837891 rotations of the motors)
+  // Calculated 21.85mph left side and 21.32mph right side
   private CANSparkMax MainLeft;
   private CANSparkMax AltLeft;
   private CANSparkMax MainRight;
@@ -122,7 +125,7 @@ public class Robot extends TimedRobot {
   public NetworkTableEntry LedScriptArgument;
 
   // SAFETY MODE
-  public static final boolean SAFETY_MODE = true;
+  public static final boolean SAFETY_MODE = false;
   private boolean safetyTripped = false;
   private static final int MAX_SAFETY_COUNT = 50;
   private int safetyCount = MAX_SAFETY_COUNT;
@@ -415,6 +418,7 @@ public class Robot extends TimedRobot {
 
           if (safetyCount == 0) {
             safetyTripped = false;
+            clearAllButtonStates();
             SmartDashboard.putBoolean("Safety Tripped", safetyTripped);
           }
         } else {
