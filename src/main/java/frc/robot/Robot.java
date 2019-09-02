@@ -82,6 +82,8 @@ public class Robot extends TimedRobot {
 
   private VictorSPX LegFrontL;
   private VictorSPX LegFrontR;
+  private VictorSPX LegBackL;
+  private Spark LegBackR;
 
   private int LiftSetpoint;
   
@@ -147,6 +149,8 @@ public class Robot extends TimedRobot {
     //ClimbFront = new DoubleSolenoid(PCM_COMP_24V, 2, 3);
     LegFrontL = new VictorSPX(30);
     LegFrontR = new VictorSPX(31);
+    LegBackL = new VictorSPX(32);
+    LegBackR = new Spark(9);
 
     BackFootMover = new VictorSP(1);
     FrontFootMover = new Spark(2);
@@ -599,6 +603,8 @@ public class Robot extends TimedRobot {
       ArmGrippers.set(0);
     }
 
+
+    // === Climbing stuff ===
     boolean climbSafety = joystick.getRawButton(2) && !safetyTripped;
     
     // Have to check all of these every update to make sure it was pressed
@@ -608,14 +614,20 @@ public class Robot extends TimedRobot {
     boolean climbBoth = xbox.getRawButton/*Pressed*/(8);
 
     if (climbSafety && (climbFront || climbBack)) {
+      final double CLIMB_SPEED = 1;
       if (climbFront) {
-        LegFrontR.set(ControlMode.PercentOutput, 1);
-        LegFrontL.set(ControlMode.PercentOutput, -1);
+        LegFrontR.set(ControlMode.PercentOutput, CLIMB_SPEED);
+        LegFrontL.set(ControlMode.PercentOutput, -CLIMB_SPEED);
+        LegBackR.set(CLIMB_SPEED);
+        LegBackL.set(ControlMode.PercentOutput, -CLIMB_SPEED);
         IsClimbingFront = !IsClimbingFront;
       }
       if (climbBack) {
-        LegFrontR.set(ControlMode.PercentOutput, -0.75);
-        LegFrontL.set(ControlMode.PercentOutput, 0.75);
+        final double RETRACT_SPEED = 0.75;
+        LegFrontR.set(ControlMode.PercentOutput, -RETRACT_SPEED);
+        LegFrontL.set(ControlMode.PercentOutput, RETRACT_SPEED);
+        LegBackR.set(-RETRACT_SPEED);
+        LegBackL.set(ControlMode.PercentOutput, RETRACT_SPEED);
         IsClimbingBack = !IsClimbingBack;
       }
       if (climbBoth) {
@@ -626,12 +638,14 @@ public class Robot extends TimedRobot {
     } else {
       LegFrontR.set(ControlMode.PercentOutput, 0);
       LegFrontL.set(ControlMode.PercentOutput, 0);
+      LegBackR.set(0);
+      LegBackL.set(ControlMode.PercentOutput, 0);
     }
     //FrontFootMover.set(1);//Math.max(-1.0, Math.min(5 * -SpeedRamp.getOutput(), 1.0)));
     //BackFootMover.set(Math.max(-1.0, Math.min(5 * -SpeedRamp.getOutput(), 1.0)));
 
     double footSpeed = Math.max(-1.0, Math.min(rawSpeed * 3, 1.0F));
-
+/*
     if (IsClimbingFront && !safetyTripped) {
       //ClimbFront.set(DoubleSolenoid.Value.kForward);
       FrontFootMover.set(footSpeed);
