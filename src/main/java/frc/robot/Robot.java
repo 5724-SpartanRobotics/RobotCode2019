@@ -13,6 +13,7 @@ import edu.wpi.first.cameraserver.CameraServer;
 import edu.wpi.first.networktables.NetworkTableEntry;
 import edu.wpi.first.networktables.NetworkTableInstance;
 import edu.wpi.first.wpilibj.Compressor;
+import edu.wpi.first.wpilibj.DigitalInput;
 import edu.wpi.first.wpilibj.DoubleSolenoid;
 import edu.wpi.first.wpilibj.Joystick;
 import edu.wpi.first.wpilibj.Solenoid;
@@ -94,6 +95,9 @@ public class Robot extends TimedRobot {
   private Spark ArmGrippers;
   private boolean ArmsExtended = false;
   private boolean ArmsClosed = false;
+
+  private DigitalInput HatchSwitch0;
+  private DigitalInput HatchSwitch1;
 
   // Hook #2 Values
   //public static final int HATCH_BOTTOM = -3602;
@@ -192,6 +196,9 @@ public class Robot extends TimedRobot {
     ArmOpener = new Solenoid(1);
     ArmGrippers = new Spark(0);
 
+    HatchSwitch0 = new DigitalInput(0);
+    HatchSwitch1 = new DigitalInput(1);
+
     //Diagnostics = new DiagnosticsLogger();
     // Uncomment this line to enable diagnostics. Warning: this may
     // cause the robot to be slower than it is supposed to be because of lag.
@@ -220,15 +227,15 @@ public class Robot extends TimedRobot {
     cam.setFPS(20);
     
 
-    LedScript.setString("ChristmasCombo1");
+    LedScript.setString("ColorWaves");
     LedScriptArgument.setString("");
   }
 
-  private static final String[][] LED_SCRIPTS = { {"ChristmasCombo1"}, 
+  private static final String[][] LED_SCRIPTS = { //{"ChristmasCombo1"}, 
                                                   {"Binary", "{\"msg\":\"We are spartans 5724\"}"}, {"ChristmasCombo1"},
-                                                  {"ColorWaves"}, {"ChristmasCombo1"},
+                                                  {"ColorWaves"}, {"MultiColorScript"}, //{"ChristmasCombo1"},
                                                   {"RandomChristmas"}, {"ChristmasCombo1"},
-                                                  {"MultiColorScript"}, {"ChristmasCombo1"},
+                                                  {"MultiColorScript"}, {"ColorWaves"}, //{"ChristmasCombo1"},
                                                   {"MorseCode", "We are spartans 5724"}, {"ChristmasCombo1"} };
   private int count = 0;
   private final int SCRIPT_LENGTH = 6000;
@@ -244,7 +251,7 @@ public class Robot extends TimedRobot {
    */
   @Override
   public void robotPeriodic() {
-    count++;
+    /*count++;
 
     if (count < 0) {
       count = 0;
@@ -258,7 +265,11 @@ public class Robot extends TimedRobot {
     
     if (script.length > 1) {
       LedScriptArgument.setString(script[1]);
-    }
+    }*/
+
+    // Hatch 0 has to be inverted because it is normally closed
+    //SmartDashboard.putBoolean("HatchSwitch0", !HatchSwitch0.get());
+    //SmartDashboard.putBoolean("HatchSwitch1", HatchSwitch1.get());
 
 
     final int MAX_TEMP = 100;
@@ -575,10 +586,26 @@ public class Robot extends TimedRobot {
     //Lifter.set(ControlMode.PercentOutput, -joystick.getRawAxis(1));
 
     if (!safetyTripped) {
-      if (joystick.getRawButtonPressed(4)/* || xbox.getBButtonPressed()*/)
+      if (joystick.getRawButtonPressed(4)) {
         ArmsClosed = !ArmsClosed;
-      if (joystick.getRawButtonPressed(3)/* || xbox.getAButtonPressed()*/)
+      } else if (!SAFETY_MODE) {
+        // This is the same as the joystick safety button, so it only works outside
+        // safety mode, and why would it be needed in safety mode anyway?
+        // It should be disabled in safety mode anyway to make sure we don't
+        // accidently attack someone's fingers at a Demo.
+
+        // Holding joystick button 7 makes the limit switches on the hatch mechanism
+        // active, so when the hatch contacts the switches, the mechanism automatically
+        // grabs the hatch.
+        // HatchSwitch0 does not have to be inverted. It's complicated.
+        if (joystick.getRawButton(7) && (HatchSwitch0.get() || !HatchSwitch1.get())) {
+          ArmsClosed = false;
+        }
+      }
+
+      if (joystick.getRawButtonPressed(3)) {
         ArmsExtended = !ArmsExtended;
+    }
     }
 
     ArmExtender.set(ArmsExtended);
@@ -594,7 +621,7 @@ public class Robot extends TimedRobot {
     if (SAFETY_MODE) {
       GRAB_SPEED = 0.8D;
     } else {
-      GRAB_SPEED = 1D;
+      GRAB_SPEED = 1D; // TODO at one point we had this 0.8, is that what it's supposed to be?
     }
     
     if (!safetyTripped) {
