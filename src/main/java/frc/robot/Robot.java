@@ -104,16 +104,16 @@ public class Robot extends TimedRobot {
   //public static final int HATCH_MIDDLE = -13490;
   //public static final int HATCH_TOP = -22085;
   // Hook #1 Values
-  public static final int HATCH_BOTTOM = -3516;//-4805;
+  public static final int HATCH_BOTTOM = -432;//-3516;
   public static final int HATCH_MIDDLE = -13120;
-  public static final int HATCH_TOP = -21214;//-23320;
+  //public static final int HATCH_TOP = -21214;
   public static final int CARGO_PICKUP = 0;
-  public static final int CARGO_BOTTOM = -7610;
-  public static final int CARGO_MIDDLE = -16026;//-17686;
-  public static final int CARGO_TOP = -24458;//-24834;
+  public static final int CARGO_BOTTOM = -10610;//-7610;
+  public static final int CARGO_MIDDLE = -23574;//-16026;
+  //public static final int CARGO_TOP = -24458;
   public static final int CARGO_FLOOR = 0;
   // We actually program this into the motor controller
-  public static final int LIMIT_UP = -26000;//-27500;
+  public static final int LIMIT_UP = -26000;
 
   private SRamp LiftRamp;
   
@@ -224,12 +224,20 @@ public class Robot extends TimedRobot {
     UsbCamera cam = CameraServer.getInstance().startAutomaticCapture();
     cam.setPixelFormat(PixelFormat.kMJPEG);
     cam.setResolution(320, 240);
-    cam.setFPS(20);
+    cam.setFPS(15);
     
 
     LedScript.setString("ColorWaves");
     LedScriptArgument.setString("");
+
+    limits = new DigitalInput[8];
+
+    for (int i = 0; i < limits.length; i++) {
+      limits[i] = new DigitalInput(i + 2);
+    }
   }
+
+  private DigitalInput limits[];
 
   private static final String[][] LED_SCRIPTS = { //{"ChristmasCombo1"}, 
                                                   {"Binary", "{\"msg\":\"We are spartans 5724\"}"}, {"ChristmasCombo1"},
@@ -270,6 +278,10 @@ public class Robot extends TimedRobot {
     // Hatch 0 has to be inverted because it is normally closed
     //SmartDashboard.putBoolean("HatchSwitch0", !HatchSwitch0.get());
     //SmartDashboard.putBoolean("HatchSwitch1", HatchSwitch1.get());
+
+    //for (int i = 0; i < limits.length; i++) {
+    //  SmartDashboard.putBoolean("Switch" + (i + 2), limits[i].get());
+    //}
 
 
     final int MAX_TEMP = 100;
@@ -540,13 +552,14 @@ public class Robot extends TimedRobot {
         LiftSetpoint = HATCH_BOTTOM;
       } else if (joystick.getRawButtonPressed(9)) {
         LiftSetpoint = HATCH_MIDDLE;
-      } else if (joystick.getRawButtonPressed(7)) {
+      //} else if (joystick.getRawButtonPressed(7)) {
         // This button is now used for safety mode LiftSetpoint = HATCH_TOP;
+        // and also for grab-hatch-on-impact mode
       } else if (joystick.getRawButtonPressed(12)) {
         LiftSetpoint = CARGO_BOTTOM;
       } else if (joystick.getRawButtonPressed(10)) {
         LiftSetpoint = CARGO_MIDDLE;
-      } else if (joystick.getRawButtonPressed(8)) {
+      //} else if (joystick.getRawButtonPressed(8)) {
         //LiftSetpoint = CARGO_TOP;
       } else if (joystick.getRawButtonPressed(1)) {
         LiftSetpoint = CARGO_FLOOR;
@@ -578,7 +591,7 @@ public class Robot extends TimedRobot {
     
     LiftRamp.Setpoint = LiftSetpoint;
     SmartDashboard.putNumber("LiftSetpoint", LiftRamp.Setpoint);
-    SmartDashboard.putNumber("LiftSetpoint", Lifter.getSelectedSensorPosition());
+    //SmartDashboard.putNumber("LiftEncoderPos", Lifter.getSelectedSensorPosition());
     SmartDashboard.putNumber("LiftOutput", LiftRamp.getOutput());
     LiftRamp.update();
 
@@ -605,7 +618,7 @@ public class Robot extends TimedRobot {
 
       if (joystick.getRawButtonPressed(3)) {
         ArmsExtended = !ArmsExtended;
-    }
+      }
     }
 
     ArmExtender.set(ArmsExtended);
@@ -640,7 +653,39 @@ public class Robot extends TimedRobot {
     boolean climbBack = xbox.getXButton/*Pressed*/();
     boolean climbBoth = xbox.getRawButton/*Pressed*/(8);
 
-    if (climbSafety && (climbFront || climbBack)) {
+    if (climbSafety) {
+      if (climbBoth) {
+        IsClimbingBack = true;
+        IsClimbingFront = true;
+      } else {
+        final double RETRACT_SPEED = 0.75;
+
+        if (climbBack) {
+          IsClimbingBack = false;
+          LegBackR.set(-RETRACT_SPEED);
+          LegBackL.set(ControlMode.PercentOutput, RETRACT_SPEED);
+        }
+
+        if (climbFront) {
+          IsClimbingFront = false;
+          LegFrontR.set(ControlMode.PercentOutput, -RETRACT_SPEED);
+          LegFrontL.set(ControlMode.PercentOutput, RETRACT_SPEED);
+        }
+
+        final double HOLD_SPEED = 0.3;
+        if (IsClimbingBack) {
+          LegBackR.set(-HOLD_SPEED);
+          LegBackL.set(ControlMode.PercentOutput, HOLD_SPEED);
+        }
+        if (IsClimbingFront) {
+          LegFrontR.set(ControlMode.PercentOutput, -HOLD_SPEED);
+          LegFrontL.set(ControlMode.PercentOutput, HOLD_SPEED);
+        }
+      }
+
+    }
+
+    /*if (climbSafety && (climbFront || climbBack)) {
       final double CLIMB_SPEED = 1;
       if (climbFront) {
         LegFrontR.set(ControlMode.PercentOutput, CLIMB_SPEED);
@@ -663,11 +708,14 @@ public class Robot extends TimedRobot {
         IsClimbingFront = IsClimbingBack = !IsClimbingFront;
       }
     } else {
-      LegFrontR.set(ControlMode.PercentOutput, 0);
-      LegFrontL.set(ControlMode.PercentOutput, 0);
-      LegBackR.set(0);
-      LegBackL.set(ControlMode.PercentOutput, 0);
-    }
+      // the required speed for holding is like ~0.25 to 0.4
+      double four = 0;//xbox.getRawAxis(4);
+      SmartDashboard.putNumber("four", four);
+      LegFrontR.set(ControlMode.PercentOutput, -four);
+      LegFrontL.set(ControlMode.PercentOutput, four);
+      LegBackR.set(-four);
+      LegBackL.set(ControlMode.PercentOutput, four);
+    }*/
     //FrontFootMover.set(1);//Math.max(-1.0, Math.min(5 * -SpeedRamp.getOutput(), 1.0)));
     //BackFootMover.set(Math.max(-1.0, Math.min(5 * -SpeedRamp.getOutput(), 1.0)));
 
