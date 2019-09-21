@@ -82,9 +82,9 @@ public class Robot extends TimedRobot {
   private TalonSRX LiftFollower;
 
   private VictorSPX LegFrontL;
-  private VictorSPX LegFrontR;
+  private Spark LegFrontR;
   private VictorSPX LegBackL;
-  private Spark LegBackR;
+  private VictorSPX LegBackR;
 
   private int LiftSetpoint;
   
@@ -152,9 +152,9 @@ public class Robot extends TimedRobot {
     //ClimbBack = new DoubleSolenoid(PCM_COMP_24V, 0, 1);
     //ClimbFront = new DoubleSolenoid(PCM_COMP_24V, 2, 3);
     LegFrontL = new VictorSPX(30);
-    LegFrontR = new VictorSPX(31);
-    LegBackL = new VictorSPX(32);
-    LegBackR = new Spark(9);
+    LegFrontR = new Spark(9);
+    LegBackL = new VictorSPX(31);
+    LegBackR = new VictorSPX(32);
 
     BackFootMover = new VictorSP(1);
     FrontFootMover = new Spark(2);
@@ -387,6 +387,10 @@ public class Robot extends TimedRobot {
       m_autonomousCommand.cancel();
     }
 
+    // Don't resume climbing
+    IsHoldingBack = false;
+    IsHoldingFront = false;
+
     safetyCount = 0;
 
     clearAllButtonStates();
@@ -424,8 +428,8 @@ public class Robot extends TimedRobot {
 
   boolean joyPOV0PressedLast = false;
   boolean joyPOV180PressedLast = false;
-  boolean IsClimbingFront = false;
-  boolean IsClimbingBack = false;
+  boolean IsHoldingFront = false;
+  boolean IsHoldingBack = false;
 
   /**
    * This function is called periodically during operator control.
@@ -649,106 +653,71 @@ public class Robot extends TimedRobot {
     
     // Have to check all of these every update to make sure it was pressed
     // between now and the last update
-    boolean climbFront = xbox.getYButton/*Pressed*/();
-    boolean climbBack = xbox.getXButton/*Pressed*/();
+    boolean retractFront = xbox.getYButton/*Pressed*/();
+    boolean retractBack = xbox.getXButton/*Pressed*/();
     boolean climbBoth = xbox.getRawButton/*Pressed*/(8);
 
-    if (climbSafety) {
+    if (climbSafety || IsHoldingBack || IsHoldingFront) {
       if (climbBoth) {
-        IsClimbingBack = true;
-        IsClimbingFront = true;
+        IsHoldingBack = true;
+        IsHoldingFront = true;
+        
+        final double CLIMB_SPEED = 1;
+
+        LegFrontR.set(CLIMB_SPEED);
+        LegFrontL.set(ControlMode.PercentOutput, -CLIMB_SPEED);
+        LegBackR.set(ControlMode.PercentOutput, -CLIMB_SPEED);
+        LegBackL.set(ControlMode.PercentOutput, CLIMB_SPEED);
       } else {
         final double RETRACT_SPEED = 0.75;
-
-        if (climbBack) {
-          IsClimbingBack = false;
-          LegBackR.set(-RETRACT_SPEED);
-          LegBackL.set(ControlMode.PercentOutput, RETRACT_SPEED);
-        }
-
-        if (climbFront) {
-          IsClimbingFront = false;
-          LegFrontR.set(ControlMode.PercentOutput, -RETRACT_SPEED);
-          LegFrontL.set(ControlMode.PercentOutput, RETRACT_SPEED);
-        }
-
         final double HOLD_SPEED = 0.3;
-        if (IsClimbingBack) {
-          LegBackR.set(-HOLD_SPEED);
+
+        if (retractBack) {
+          IsHoldingBack = false;
+          LegBackR.set(ControlMode.PercentOutput, RETRACT_SPEED);
+          LegBackL.set(ControlMode.PercentOutput, -RETRACT_SPEED);
+        } else if (IsHoldingBack) {
+          LegBackR.set(ControlMode.PercentOutput, -HOLD_SPEED);
           LegBackL.set(ControlMode.PercentOutput, HOLD_SPEED);
+        } else {
+          LegBackR.set(ControlMode.PercentOutput, 0);
+          LegBackL.set(ControlMode.PercentOutput, 0);
         }
-        if (IsClimbingFront) {
-          LegFrontR.set(ControlMode.PercentOutput, -HOLD_SPEED);
-          LegFrontL.set(ControlMode.PercentOutput, HOLD_SPEED);
+
+        if (retractFront) {
+          IsHoldingFront = false;
+          LegFrontR.set(-RETRACT_SPEED);
+          LegFrontL.set(ControlMode.PercentOutput, RETRACT_SPEED);
+        } else if (IsHoldingFront) {
+          LegFrontR.set(HOLD_SPEED);
+          LegFrontL.set(ControlMode.PercentOutput, -HOLD_SPEED);
+        } else {
+          LegFrontR.set(0);
+          LegFrontL.set(ControlMode.PercentOutput, 0);
         }
-      }
-
-    }
-
-    /*if (climbSafety && (climbFront || climbBack)) {
-      final double CLIMB_SPEED = 1;
-      if (climbFront) {
-        LegFrontR.set(ControlMode.PercentOutput, CLIMB_SPEED);
-        LegFrontL.set(ControlMode.PercentOutput, -CLIMB_SPEED);
-        LegBackR.set(CLIMB_SPEED);
-        LegBackL.set(ControlMode.PercentOutput, -CLIMB_SPEED);
-        IsClimbingFront = !IsClimbingFront;
-      }
-      if (climbBack) {
-        final double RETRACT_SPEED = 0.75;
-        LegFrontR.set(ControlMode.PercentOutput, -RETRACT_SPEED);
-        LegFrontL.set(ControlMode.PercentOutput, RETRACT_SPEED);
-        LegBackR.set(-RETRACT_SPEED);
-        LegBackL.set(ControlMode.PercentOutput, RETRACT_SPEED);
-        IsClimbingBack = !IsClimbingBack;
-      }
-      if (climbBoth) {
-        // Set them all to the opposite of where the front
-        // currently is.
-        IsClimbingFront = IsClimbingBack = !IsClimbingFront;
       }
     } else {
-      // the required speed for holding is like ~0.25 to 0.4
-      double four = 0;//xbox.getRawAxis(4);
-      SmartDashboard.putNumber("four", four);
-      LegFrontR.set(ControlMode.PercentOutput, -four);
-      LegFrontL.set(ControlMode.PercentOutput, four);
-      LegBackR.set(-four);
-      LegBackL.set(ControlMode.PercentOutput, four);
-    }*/
-    //FrontFootMover.set(1);//Math.max(-1.0, Math.min(5 * -SpeedRamp.getOutput(), 1.0)));
-    //BackFootMover.set(Math.max(-1.0, Math.min(5 * -SpeedRamp.getOutput(), 1.0)));
-
-    double footSpeed = Math.max(-1.0, Math.min(rawSpeed * 3, 1.0F));
-/*
-    if (IsClimbingFront && !safetyTripped) {
-      //ClimbFront.set(DoubleSolenoid.Value.kForward);
-      FrontFootMover.set(footSpeed);
-    } else {
-      //ClimbFront.set(DoubleSolenoid.Value.kReverse);
-      LegFrontR.set(ControlMode.PercentOutput, 0);
+      LegBackR.set(ControlMode.PercentOutput, 0);
+      LegBackL.set(ControlMode.PercentOutput, 0);
+      LegFrontR.set(0);
       LegFrontL.set(ControlMode.PercentOutput, 0);
-      FrontFootMover.set(0);
     }
+    
+    double footSpeed = Math.max(-1.0, Math.min(rawSpeed * 3, 1.0F));
 
-    if (IsClimbingBack && !safetyTripped) {
-      //ClimbBack.set(DoubleSolenoid.Value.kForward);
+    if (IsHoldingBack) {
+      // Drive back feet
       BackFootMover.set(footSpeed);
     } else {
-      //ClimbBack.set(DoubleSolenoid.Value.kReverse);
       BackFootMover.set(0);
     }
 
-    /*if (climbState == 0) {
-    } else if (climbState == 1) {
-      ClimbFront.set(DoubleSolenoid.Value.kForward);
-      ClimbBack.set(DoubleSolenoid.Value.kForward);
-      FeetMovers.set(Math.max(-1.0, Math.min(5 * SpeedRamp.getOutput(), 1.0)));
+    if (IsHoldingFront) {
+      // Drive front feet
+      FrontFootMover.set(footSpeed);
     } else {
-      ClimbFront.set(DoubleSolenoid.Value.kReverse);
-      ClimbBack.set(DoubleSolenoid.Value.kForward);
-      FeetMovers.set(Math.max(-1.0, Math.min(5 * SpeedRamp.getOutput(), 1.0)));
-    }*/
+      FrontFootMover.set(0);
+    }
 
   }
 
