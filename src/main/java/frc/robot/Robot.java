@@ -129,6 +129,7 @@ public class Robot extends TimedRobot {
   public NetworkTable LedTable;
   public NetworkTableEntry LedScript;
   public NetworkTableEntry LedScriptArgument;
+  public NetworkTableEntry LedArmsClosed;
 
   // SAFETY MODE
   public static final boolean SAFETY_MODE = false;
@@ -220,6 +221,7 @@ public class Robot extends TimedRobot {
     LedTable = nt.getTable("LedInfo");
     LedScript = LedTable.getEntry("CurrentScript");
     LedScriptArgument = LedTable.getEntry("ScriptArgument");
+    LedArmsClosed = LedTable.getEntry("ArmsClosed");
 
     UsbCamera cam = CameraServer.getInstance().startAutomaticCapture();
     cam.setPixelFormat(PixelFormat.kMJPEG);
@@ -649,7 +651,7 @@ public class Robot extends TimedRobot {
 
 
     // === Climbing stuff ===
-    boolean climbSafety = joystick.getRawButton(2) && !safetyTripped;
+    boolean climbSafety = /*joystick.getRawButton(2) &&*/ !safetyTripped;
     
     // Have to check all of these every update to make sure it was pressed
     // between now and the last update
@@ -657,26 +659,38 @@ public class Robot extends TimedRobot {
     boolean retractBack = xbox.getXButton/*Pressed*/();
     boolean climbBoth = xbox.getRawButton/*Pressed*/(8);
 
+    final double CLIMB_SPEED = 1;
+    final double RETRACT_SPEED = 0.75;
+    final double HOLD_SPEED = 0.3;
+    // If you multiply the hold by this, you get the climb value.
+    // Avoids having to thing + or minus so many times.
+    final double HOLD_CLIMB_MULTIPLIER = CLIMB_SPEED / HOLD_SPEED;
+
     if (climbSafety || IsHoldingBack || IsHoldingFront) {
       if (climbBoth) {
         IsHoldingBack = true;
         IsHoldingFront = true;
-        
-        final double CLIMB_SPEED = 1;
 
         LegFrontR.set(CLIMB_SPEED);
         LegFrontL.set(ControlMode.PercentOutput, -CLIMB_SPEED);
         LegBackR.set(ControlMode.PercentOutput, -CLIMB_SPEED);
         LegBackL.set(ControlMode.PercentOutput, CLIMB_SPEED);
       } else {
-        final double RETRACT_SPEED = 0.75;
-        final double HOLD_SPEED = 0.3;
 
         if (retractBack) {
           IsHoldingBack = false;
           LegBackR.set(ControlMode.PercentOutput, RETRACT_SPEED);
           LegBackL.set(ControlMode.PercentOutput, -RETRACT_SPEED);
         } else if (IsHoldingBack) {
+          double rightSpeed = -HOLD_SPEED;
+          double leftSpeed = HOLD_SPEED;
+          int pov = xbox.getPOV();
+
+          // Front right leg
+          if (pov >= 0 && pov <= 90) {
+
+          }
+
           LegBackR.set(ControlMode.PercentOutput, -HOLD_SPEED);
           LegBackL.set(ControlMode.PercentOutput, HOLD_SPEED);
         } else {
@@ -689,8 +703,17 @@ public class Robot extends TimedRobot {
           LegFrontR.set(-RETRACT_SPEED);
           LegFrontL.set(ControlMode.PercentOutput, RETRACT_SPEED);
         } else if (IsHoldingFront) {
-          LegFrontR.set(HOLD_SPEED);
-          LegFrontL.set(ControlMode.PercentOutput, -HOLD_SPEED);
+          double rightSpeed = HOLD_SPEED;
+          double leftSpeed = -HOLD_SPEED;
+          int pov = xbox.getPOV();
+
+          // Front right leg
+          if (pov >= 0 && pov <= 90) {
+            rightSpeed *= HOLD_CLIMB_MULTIPLIER;
+          }
+
+          LegFrontR.set(rightSpeed);
+          LegFrontL.set(ControlMode.PercentOutput, leftSpeed);
         } else {
           LegFrontR.set(0);
           LegFrontL.set(ControlMode.PercentOutput, 0);
@@ -719,6 +742,8 @@ public class Robot extends TimedRobot {
       FrontFootMover.set(0);
     }
 
+    // Publish values to dashboard for LEDs
+    LedArmsClosed.setBoolean(ArmsClosed);
   }
 
   /**
