@@ -7,36 +7,6 @@
 
 package frc.robot;
 
-import edu.wpi.cscore.UsbCamera;
-import edu.wpi.cscore.VideoMode.PixelFormat;
-import edu.wpi.first.cameraserver.CameraServer;
-import edu.wpi.first.networktables.NetworkTableEntry;
-import edu.wpi.first.networktables.NetworkTableInstance;
-import edu.wpi.first.wpilibj.Compressor;
-import edu.wpi.first.wpilibj.DigitalInput;
-import edu.wpi.first.wpilibj.DoubleSolenoid;
-import edu.wpi.first.wpilibj.Joystick;
-import edu.wpi.first.wpilibj.Solenoid;
-import edu.wpi.first.wpilibj.Spark;
-import edu.wpi.first.wpilibj.SpeedControllerGroup;
-import edu.wpi.first.wpilibj.TimedRobot;
-import edu.wpi.first.wpilibj.VictorSP;
-import edu.wpi.first.wpilibj.XboxController;
-import edu.wpi.first.wpilibj.DoubleSolenoid.Value;
-import edu.wpi.first.wpilibj.GenericHID.Hand;
-import edu.wpi.first.wpilibj.GenericHID.RumbleType;
-import edu.wpi.first.wpilibj.command.Command;
-import edu.wpi.first.wpilibj.drive.DifferentialDrive;
-import edu.wpi.first.networktables.NetworkTable;
-import edu.wpi.first.wpilibj.shuffleboard.BuiltInWidgets;
-import edu.wpi.first.wpilibj.shuffleboard.Shuffleboard;
-import edu.wpi.first.wpilibj.smartdashboard.SendableChooser;
-import edu.wpi.first.wpilibj.smartdashboard.SmartDashboard;
-import frc.robot.commands.ExampleCommand;
-import frc.robot.subsystems.ExampleSubsystem;
-
-import java.util.Map;
-
 import com.ctre.phoenix.motorcontrol.ControlMode;
 import com.ctre.phoenix.motorcontrol.NeutralMode;
 import com.ctre.phoenix.motorcontrol.can.TalonSRX;
@@ -44,6 +14,35 @@ import com.ctre.phoenix.motorcontrol.can.VictorSPX;
 import com.revrobotics.CANSparkMax;
 import com.revrobotics.CANSparkMax.IdleMode;
 import com.revrobotics.CANSparkMaxLowLevel.MotorType;
+
+import edu.wpi.cscore.UsbCamera;
+import edu.wpi.cscore.VideoMode.PixelFormat;
+import edu.wpi.first.cameraserver.CameraServer;
+import edu.wpi.first.networktables.NetworkTable;
+import edu.wpi.first.networktables.NetworkTableEntry;
+import edu.wpi.first.networktables.NetworkTableInstance;
+import edu.wpi.first.wpilibj.ADXL345_SPI;
+import edu.wpi.first.wpilibj.ADXL362;
+import edu.wpi.first.wpilibj.BuiltInAccelerometer;
+import edu.wpi.first.wpilibj.Compressor;
+import edu.wpi.first.wpilibj.DigitalInput;
+import edu.wpi.first.wpilibj.GenericHID.Hand;
+import edu.wpi.first.wpilibj.GenericHID.RumbleType;
+import edu.wpi.first.wpilibj.Joystick;
+import edu.wpi.first.wpilibj.SPI.Port;
+import edu.wpi.first.wpilibj.Solenoid;
+import edu.wpi.first.wpilibj.Spark;
+import edu.wpi.first.wpilibj.SpeedControllerGroup;
+import edu.wpi.first.wpilibj.TimedRobot;
+import edu.wpi.first.wpilibj.VictorSP;
+import edu.wpi.first.wpilibj.XboxController;
+import edu.wpi.first.wpilibj.command.Command;
+import edu.wpi.first.wpilibj.drive.DifferentialDrive;
+import edu.wpi.first.wpilibj.interfaces.Accelerometer.Range;
+import edu.wpi.first.wpilibj.smartdashboard.SendableChooser;
+import edu.wpi.first.wpilibj.smartdashboard.SmartDashboard;
+import frc.robot.commands.ExampleCommand;
+import frc.robot.subsystems.ExampleSubsystem;
 
 /**
  * The VM is configured to automatically run this class, and to call the
@@ -56,19 +55,20 @@ public class Robot extends TimedRobot {
   public static ExampleSubsystem m_subsystem = new ExampleSubsystem();
   public static OI m_oi;
 
-  //private DiagnosticsLogger Diagnostics;
+  // private DiagnosticsLogger Diagnostics;
 
   private XboxController xbox;
   private Joystick joystick;
 
-  //private DoubleSolenoid ClimbFront;
-  //private DoubleSolenoid ClimbBack;
+  // private DoubleSolenoid ClimbFront;
+  // private DoubleSolenoid ClimbBack;
   private VictorSP BackFootMover;
   private Spark FrontFootMover;
   private SpeedControllerGroup FeetMovers;
-  
+
   // Fun fact: on the 2019 robot, 1 turn of the drivetrain wheels is approximately
-  // 4.831113433837891 encoder "rotations" (which should be 4.831113433837891 rotations of the motors)
+  // 4.831113433837891 encoder "rotations" (which should be 4.831113433837891
+  // rotations of the motors)
   // Calculated 21.85mph left side and 21.32mph right side
   private CANSparkMax MainLeft;
   private CANSparkMax AltLeft;
@@ -137,6 +137,12 @@ public class Robot extends TimedRobot {
   private static final int MAX_SAFETY_COUNT = 50;
   private int safetyCount = MAX_SAFETY_COUNT;
 
+  // Accelerometer
+  private BuiltInAccelerometer Accel;
+  private final double ZeroX = 0.015;
+  private final double ZeroY = 0.81;
+  private final double ZeroZ = -0.59;
+
   /**
    * This function is run when the robot is first started up and should be used
    * for any initialization code.
@@ -199,6 +205,8 @@ public class Robot extends TimedRobot {
 
     HatchSwitch0 = new DigitalInput(0);
     HatchSwitch1 = new DigitalInput(1);
+
+    Accel = new BuiltInAccelerometer(Range.k2G);
 
     //Diagnostics = new DiagnosticsLogger();
     // Uncomment this line to enable diagnostics. Warning: this may
@@ -651,6 +659,7 @@ public class Robot extends TimedRobot {
 
 
     // === Climbing stuff ===
+
     boolean climbSafety = /*joystick.getRawButton(2) &&*/ !safetyTripped;
     
     // Have to check all of these every update to make sure it was pressed
@@ -666,17 +675,51 @@ public class Robot extends TimedRobot {
     // Avoids having to thing + or minus so many times.
     final double HOLD_CLIMB_MULTIPLIER = CLIMB_SPEED / HOLD_SPEED;
 
+    // Left is negative, right is positive
+    double xOff = Math.round((Accel.getX() - ZeroX) * 10) / 10D;
+    // Forward is negative, backwards is positive
+    double zOff = Math.round((Accel.getZ() - ZeroZ) * 10) / 10D;
+
+
+    SmartDashboard.putNumber("X", xOff);
+    SmartDashboard.putNumber("Z", zOff);
+
+
     if (climbSafety || IsHoldingBack || IsHoldingFront) {
       if (climbBoth) {
         IsHoldingBack = true;
         IsHoldingFront = true;
 
-        LegFrontR.set(CLIMB_SPEED);
-        LegFrontL.set(ControlMode.PercentOutput, -CLIMB_SPEED);
-        LegBackR.set(ControlMode.PercentOutput, -CLIMB_SPEED);
-        LegBackL.set(ControlMode.PercentOutput, CLIMB_SPEED);
-      } else {
+        
+        double SpeedFR = CLIMB_SPEED;
+        double SpeedFL = -CLIMB_SPEED;
+        double SpeedBR = -CLIMB_SPEED;
+        double SpeedBL = CLIMB_SPEED;
 
+        final double SLOW_MULT = 0.3;
+
+        if (xOff < 0 || zOff < 0) {
+          SpeedBR *= SLOW_MULT;
+        }
+
+        if (xOff < 0 || zOff > 0) {
+          SpeedFR *= SLOW_MULT;
+        }
+
+        if (xOff > 0 || zOff < 0) {
+          SpeedBL *= SLOW_MULT;
+        }
+
+        if (xOff > 0 || zOff > 0) {
+          SpeedFL *= SLOW_MULT;
+        }
+        
+        LegFrontR.set(SpeedFR);
+        LegFrontL.set(ControlMode.PercentOutput, SpeedFL);
+        LegBackR.set(ControlMode.PercentOutput, SpeedBR);
+        LegBackL.set(ControlMode.PercentOutput, SpeedBL);
+
+      } else {
         if (retractBack) {
           IsHoldingBack = false;
           LegBackR.set(ControlMode.PercentOutput, RETRACT_SPEED);
